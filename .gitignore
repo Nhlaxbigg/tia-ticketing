@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Database (keep out of git — Render uses ephemeral storage)
+*.db
+
+# Secret key file
+.secret_key
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
