@@ -12,16 +12,16 @@
         extend: {
           colors: {
             tia: {
-              50:  '#e6f0ff',
-              100: '#cce0ff',
-              200: '#99c1ff',
-              300: '#66a3ff',
-              400: '#3384ff',
-              500: '#0065ff',
-              600: '#0051cc',
-              700: '#003d99',
-              800: '#002966',
-              900: '#001433',
+              50:  '#f5f3ff',
+              100: '#ede9fe',
+              200: '#ddd6fe',
+              300: '#c4b5fd',
+              400: '#8b5cf6',
+              500: '#7c3aed',
+              600: '#6d28d9',
+              700: '#5b21b6',
+              800: '#4c1d95',
+              900: '#2e1065',
             }
           }
         }
@@ -33,7 +33,7 @@
 <body class="h-full bg-gray-50 text-gray-800">
 
   <!-- ═══ Auth Views ═══════════════════════════════════════════════════════ -->
-  <div id="auth-screen" class="hidden min-h-screen flex items-center justify-center bg-gradient-to-br from-tia-800 via-tia-700 to-tia-500 px-4">
+  <div id="auth-screen" class="hidden min-h-screen flex items-center justify-center bg-gradient-to-br from-violet-950 via-purple-900 to-indigo-800 px-4">
     <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8">
       <!-- Logo -->
       <div class="text-center mb-8">
@@ -104,16 +104,16 @@
   <!-- ═══ App Shell ════════════════════════════════════════════════════════ -->
   <div id="app-shell" class="hidden h-full flex">
     <!-- Sidebar -->
-    <aside id="sidebar" class="w-64 min-h-screen bg-tia-800 text-white flex flex-col shadow-xl flex-shrink-0">
+    <aside id="sidebar" class="w-64 min-h-screen bg-gradient-to-b from-violet-950 via-purple-900 to-indigo-800 text-white flex flex-col shadow-xl flex-shrink-0">
       <!-- Brand -->
-      <div class="p-5 border-b border-tia-700">
+      <div class="p-5 border-b border-white/10">
         <div class="flex items-center gap-3">
-          <div class="w-9 h-9 bg-tia-500 rounded-xl flex items-center justify-center flex-shrink-0">
+          <div class="w-12 h-12 rounded-2xl bg-white/15 ring-2 ring-white/20 shadow-inner flex items-center justify-center flex-shrink-0">
             <i class="fa-solid fa-ticket text-sm"></i>
           </div>
           <div class="leading-tight">
             <div class="font-bold text-sm">TIA Solutions</div>
-            <div class="text-tia-300 text-xs">Support Portal</div>
+            <div class="text-violet-200 text-xs">Support Portal</div>
           </div>
         </div>
       </div>
@@ -121,20 +121,20 @@
       <!-- Nav -->
       <nav class="flex-1 p-4 space-y-1">
         <button onclick="navigate('dashboard')" data-nav="dashboard"
-          class="nav-item w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition hover:bg-tia-700">
+          class="nav-item w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition hover:bg-white/15">
           <i class="fa-solid fa-gauge-high w-4 text-center"></i> Dashboard
         </button>
         <button onclick="navigate('tickets')" data-nav="tickets"
-          class="nav-item w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition hover:bg-tia-700">
+          class="nav-item w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition hover:bg-white/15">
           <i class="fa-solid fa-ticket w-4 text-center"></i> Tickets
         </button>
         <button onclick="navigate('new-ticket')" data-nav="new-ticket"
-          class="nav-item w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition hover:bg-tia-700">
+          class="nav-item w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition hover:bg-white/15">
           <i class="fa-solid fa-plus w-4 text-center"></i> New Ticket
         </button>
         <!-- Admin only -->
         <button onclick="navigate('users')" data-nav="users" id="nav-users"
-          class="nav-item hidden w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition hover:bg-tia-700">
+          class="nav-item hidden w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition hover:bg-white/15">
           <i class="fa-solid fa-users w-4 text-center"></i> Users
         </button>
       </nav>

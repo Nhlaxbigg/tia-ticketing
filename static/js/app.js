@@ -39,13 +39,21 @@ function hideError(id)      { el(id)?.classList.add('hidden'); }
 
 function fmt(dt) {
   if (!dt) return '—';
-  const d = new Date(dt + (dt.endsWith('Z') ? '' : 'Z'));
-  return d.toLocaleDateString('en-ZA', { day:'2-digit', month:'short', year:'numeric' })
-    + ' ' + d.toLocaleTimeString('en-ZA', { hour:'2-digit', minute:'2-digit' });
+  const raw = String(dt).trim();
+  if (!raw) return '—';
+  const date = new Date(raw.includes('T') || raw.includes(' ') ? raw : raw + (raw.endsWith('Z') ? '' : 'Z'));
+  if (Number.isNaN(date.getTime())) return raw;
+  return new Intl.DateTimeFormat('en-ZA', {
+    timeZone: 'Africa/Harare',
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  }).format(date);
 }
 
 function badge(cls, text) {
-  return `<span class="badge badge-${cls}">${text.replace('_',' ')}</span>`;
+  const value = text == null ? '' : String(text);
+  const label = value.replace(/_/g, ' ').trim() || '—';
+  return `<span class="badge${cls ? ` badge-${cls}` : ''}">${label}</span>`;
 }
 
 function categoryLabel(c) {
@@ -602,33 +610,58 @@ function buildAssigneeOptions(currentAssignedTo) {
     ).join('');
 }
 
-// Convert stored datetime string to datetime-local input format
-function toDatetimeLocal(dt) {
-  if (!dt) return '';
-  try {
-    const d = new Date(dt + (dt.endsWith('Z') ? '' : 'Z'));
-    // Format: YYYY-MM-DDTHH:MM
-    return d.toISOString().slice(0, 16);
-  } catch(_) { return ''; }
+function formatHarareInputValue(date) {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Harare',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  });
+  const parts = formatter.formatToParts(date);
+  const values = Object.fromEntries(parts.filter(p => p.type !== 'literal').map(p => [p.type, p.value]));
+  return `${values.year}-${values.month}-${values.day}T${values.hour}:${values.minute}`;
 }
 
-// Auto-calculate hours when end time changes
+function toDatetimeLocal(dt) {
+  if (!dt) return '';
+  const raw = String(dt).trim();
+  if (!raw) return '';
+  try {
+    const date = new Date(raw.includes('T') || raw.includes(' ') ? raw : raw + (raw.endsWith('Z') ? '' : 'Z'));
+    if (Number.isNaN(date.getTime())) return raw.slice(0, 16);
+    return formatHarareInputValue(date);
+  } catch(_) { return raw.slice(0, 16); }
+}
+
+function parseHarareDateTime(value) {
+  if (!value) return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  const [datePart, timePart = '00:00'] = raw.split('T');
+  const [year, month, day] = datePart.split('-').map(Number);
+  const [hour, minute] = timePart.split(':').map(Number);
+  return new Date(Date.UTC(year, month - 1, day, hour, minute, 0) - 2 * 60 * 60 * 1000);
+}
+
 function autoCalcHours() {
-  const start = el('edit-start-time')?.value;
-  const end   = el('edit-end-time')?.value;
+  const start = parseHarareDateTime(el('edit-start-time')?.value);
+  const end = parseHarareDateTime(el('edit-end-time')?.value);
   if (!start || !end) return;
-  const diff = new Date(end) - new Date(start);
+  const diff = end - start;
   if (diff <= 0) return;
   const totalMins = Math.round(diff / 60000);
   const h = Math.floor(totalMins / 60);
   const m = totalMins % 60;
-  setVal('edit-hours-worked', h > 0 ? `${h} Hour${h>1?'s':''} ${m} Minute${m!==1?'s':''}` : `${m} Minute${m!==1?'s':''}`);
+  setVal('edit-hours-worked', h > 0 ? `${h} Hour${h > 1 ? 's' : ''} ${m} Minute${m !== 1 ? 's' : ''}` : `${m} Minute${m !== 1 ? 's' : ''}`);
 }
 
 function closeEditModal() { hide('edit-modal'); editingTicketId = null; }
 
 async function saveEdit() {
   hideError('edit-error');
+  if ((val('edit-status') === 'resolved' || val('edit-status') === 'closed') && !val('edit-end-time')) {
+    setVal('edit-end-time', formatHarareInputValue(new Date()));
+  }
+  autoCalcHours();
   const payload = {
     title:             val('edit-title'),
     status:            val('edit-status'),
