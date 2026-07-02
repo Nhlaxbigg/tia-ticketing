@@ -84,7 +84,7 @@ async function doRegister() {
       body: JSON.stringify({
         name: val('reg-name'), email: val('reg-email'),
         company: val('reg-company'), phone: val('reg-phone'),
-        password: val('reg-password'),
+        role: val('reg-role'), password: val('reg-password'),
       }),
     });
     el('reg-success').textContent = 'Account created! Please sign in.';
@@ -116,8 +116,8 @@ async function bootApp() {
   // Show admin-only nav items
   if (currentUser.role === 'admin') { show('nav-users'); }
 
-  // Load agents BEFORE navigating so the assign dropdown is ready
-  if (currentUser.role === 'admin' || currentUser.role === 'agent') {
+  // Load agents/technicians BEFORE navigating so the assign dropdown is ready
+  if (currentUser.role !== 'client') {
     await loadAgents();
   }
 
@@ -127,11 +127,12 @@ async function bootApp() {
 
 async function loadAgents() {
   try {
-    const [agentsRes, adminsRes] = await Promise.all([
+    const [agentsRes, techniciansRes, adminsRes] = await Promise.all([
       apiFetch('/users?role=agent'),
+      apiFetch('/users?role=technician'),
       apiFetch('/users?role=admin'),
     ]);
-    agentList = [...(agentsRes.users || []), ...(adminsRes.users || [])];
+    agentList = [...(agentsRes.users || []), ...(techniciansRes.users || []), ...(adminsRes.users || [])];
   } catch(_){}
 }
 
@@ -550,9 +551,12 @@ function openEditModal(id) {
     // Populate assignee dropdown — visible to both admin and agent
     const sel = el('edit-assigned');
     if (agentList.length === 0) {
-      // Fetch fresh if list is empty (e.g. agent role logged in)
+      // Fetch fresh if list is empty (e.g. technician role logged in)
       apiFetch('/users?role=agent').then(d => {
         agentList = d.users || [];
+        return apiFetch('/users?role=technician');
+      }).then(d => {
+        agentList = [...agentList, ...(d.users || [])];
         return apiFetch('/users?role=admin');
       }).then(d => {
         agentList = [...agentList, ...(d.users || [])];

@@ -48,6 +48,8 @@ def list_tickets():
     elif user["role"] == "agent":
         base_q += " AND (t.assigned_to = ? OR t.status = 'open')"
         params.append(uid)
+    elif user["role"] == "technician":
+        base_q += " AND (t.assigned_to IN (SELECT id FROM users WHERE role = 'technician') OR t.status = 'open')"
 
     if status   and status   in STATUSES:   base_q += " AND t.status = ?";   params.append(status)
     if priority and priority in PRIORITIES: base_q += " AND t.priority = ?"; params.append(priority)
@@ -103,8 +105,8 @@ def create_ticket():
     ticket_id = cur.lastrowid
     db.commit()
 
-    # Notify all admins/agents
-    agents = db.execute("SELECT id FROM users WHERE role IN ('admin','agent')").fetchall()
+    # Notify all admins/agents/technicians
+    agents = db.execute("SELECT id FROM users WHERE role IN ('admin','agent','technician')").fetchall()
     for a in agents:
         db.execute(
             "INSERT INTO notifications (user_id, message, link) VALUES (?,?,?)",
@@ -161,7 +163,7 @@ def get_ticket(ticket_id):
 
     result = dict(ticket)
     result["comments"] = [dict(c) for c in comments
-                          if not c["is_internal"] or user["role"] in ("admin","agent")]
+                          if not c["is_internal"] or user["role"] in ("admin","agent","technician")]
     return jsonify(result)
 
 
@@ -201,7 +203,7 @@ def update_ticket(ticket_id):
             fields.append("support_type = ?"); params.append(data["support_type"])
         if "status" in data and data["status"] in STATUSES:
             fields.append("status = ?"); params.append(data["status"])
-        if "assigned_to" in data and user["role"] in ("admin", "agent"):
+        if "assigned_to" in data and user["role"] in ("admin", "agent", "technician"):
             fields.append("assigned_to = ?"); params.append(data["assigned_to"])
 
     if fields:
@@ -215,6 +217,14 @@ def update_ticket(ticket_id):
         db.execute(
             "INSERT INTO notifications (user_id, message, link) VALUES (?,?,?)",
             (t["created_by"], f"Ticket {t['ticket_no']} status changed to {data['status']}", f"/ticket/{ticket_id}")
+        )
+        db.commit()
+
+    # Notify new assignee if assignment changed
+    if "assigned_to" in data and data["assigned_to"] and data["assigned_to"] != t["assigned_to"] and data["assigned_to"] != uid:
+        db.execute(
+            "INSERT INTO notifications (user_id, message, link) VALUES (?,?,?)",
+            (data["assigned_to"], f"You have been assigned ticket {t['ticket_no']}", f"/ticket/{ticket_id}")
         )
         db.commit()
 

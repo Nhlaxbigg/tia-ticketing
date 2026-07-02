@@ -83,6 +83,10 @@
             class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tia-500" />
           <input id="reg-phone"   type="tel"   placeholder="Phone Number"
             class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tia-500" />
+          <select id="reg-role" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tia-500">
+            <option value="client">Client Account</option>
+            <option value="technician">Technician Account</option>
+          </select>
           <input id="reg-password" type="password" placeholder="Password (min 8 chars)"
             class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tia-500" />
           <button onclick="doRegister()"
@@ -305,6 +309,7 @@
                 <option value="">All Roles</option>
                 <option value="admin">Admin</option>
                 <option value="agent">Agent</option>
+                <option value="technician">Technician</option>
                 <option value="client">Client</option>
               </select>
               <button onclick="loadUsers()" class="bg-tia-600 hover:bg-tia-700 text-white px-4 py-1.5 rounded-lg text-sm transition">
@@ -464,6 +469,7 @@
         <select id="um-role" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tia-500">
           <option value="client">Client</option>
           <option value="agent">Agent</option>
+          <option value="technician">Technician</option>
           <option value="admin">Admin</option>
         </select>
         <input id="um-password" type="password" placeholder="New password (leave blank to keep)"

@@ -7,7 +7,7 @@ from database import get_db
 
 auth_bp = Blueprint("auth", __name__)
 
-VALID_ROLES = {"client", "agent", "admin"}
+VALID_ROLES = {"client", "agent", "admin", "technician"}
 
 
 @auth_bp.route("/register", methods=["POST"])

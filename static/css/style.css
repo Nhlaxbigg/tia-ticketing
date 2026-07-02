@@ -26,9 +26,10 @@
 .badge-high     { background: #fff7ed; color: #ea580c; }
 .badge-critical { background: #fef2f2; color: #dc2626; }
 
-.badge-admin  { background: #f3e8ff; color: #7e22ce; }
-.badge-agent  { background: #dbeafe; color: #1d4ed8; }
-.badge-client { background: #f0fdf4; color: #16a34a; }
+.badge-admin      { background: #f3e8ff; color: #7e22ce; }
+.badge-agent      { background: #dbeafe; color: #1d4ed8; }
+.badge-technician { background: #fff7ed; color: #b45309; }
+.badge-client     { background: #f0fdf4; color: #16a34a; }
 
 /* Category pills */
 .cat-cloud           { background: #eff6ff; color: #1d4ed8; }

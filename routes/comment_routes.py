@@ -26,7 +26,7 @@ def add_comment(ticket_id):
     if user["role"] == "client" and t["created_by"] != uid:
         db.close(); return jsonify(error="Access denied."), 403
 
-    is_internal = int(bool(data.get("is_internal"))) if user["role"] in ("admin","agent") else 0
+    is_internal = int(bool(data.get("is_internal"))) if user["role"] in ("admin","agent","technician") else 0
 
     cur = db.execute(
         "INSERT INTO comments (ticket_id, user_id, body, is_internal) VALUES (?,?,?,?)",

@@ -115,6 +115,12 @@ def init_db():
             ("Support Agent", "agent@tia-solutions.co.za",
              generate_password_hash("Agent@1234"), "agent", "TIA Solutions")
         )
+        # Seed a demo technician
+        c.execute(
+            "INSERT INTO users (name, email, password, role, company) VALUES (?,?,?,?,?)",
+            ("TIA Technician", "technician@tia-solutions.co.za",
+             generate_password_hash("Tech@1234"), "technician", "TIA Solutions")
+        )
         conn.commit()
 
     conn.close()

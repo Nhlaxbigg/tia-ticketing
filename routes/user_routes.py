@@ -14,7 +14,7 @@ def list_users():
     uid  = int(get_jwt_identity())
     db   = get_db()
     user = db.execute("SELECT role FROM users WHERE id=?", (uid,)).fetchone()
-    if user["role"] not in ("admin", "agent"):
+    if user["role"] not in ("admin", "agent", "technician"):
         db.close(); return jsonify(error="Access denied."), 403
 
     role   = request.args.get("role", "")
