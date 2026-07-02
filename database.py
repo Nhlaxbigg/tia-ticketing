@@ -136,6 +136,23 @@ def init_db():
                 )
         conn.commit()
 
+    # Ensure the requested technicians exist even if admin seed already ran
+    from werkzeug.security import generate_password_hash
+    conn = get_db()
+    c = conn.cursor()
+    technicians = [
+        ("Keitumetse Ndaba", "keitumetse@tia-solutions.co.za", "_ig4A99LX9IMzmBK"),
+        ("Lebogang Setlago", "lebogang@tia-solutions.co.za", "TFWHoDEIXVjLAd7-"),
+        ("Mlungisi Khoza", "mlungisi@tia-solutions.co.za", "eX8_SJZAaN018mny"),
+        ("Nhlanhla Mkhwebane", "nhlanhla@tia-solutions.co.za", "Xx3EPfWgzYaftCKn"),
+    ]
+    for t_name, t_email, t_pw in technicians:
+        if not c.execute("SELECT id FROM users WHERE email = ?", (t_email,)).fetchone():
+            c.execute(
+                "INSERT INTO users (name, email, password, role, company) VALUES (?,?,?,?,?)",
+                (t_name, t_email, generate_password_hash(t_pw), "technician", "TIA Solutions")
+            )
+    conn.commit()
     conn.close()
 
 
