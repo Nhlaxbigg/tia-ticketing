@@ -45,11 +45,9 @@ def list_tickets():
     if user["role"] == "client":
         base_q += " AND t.created_by = ?"
         params.append(uid)
-    elif user["role"] == "agent":
-        base_q += " AND (t.assigned_to = ? OR t.status = 'open')"
-        params.append(uid)
-    elif user["role"] == "technician":
-        base_q += " AND (t.assigned_to IN (SELECT id FROM users WHERE role = 'technician') OR t.status = 'open')"
+    else:
+        # Internal staff roles can see the shared ticket workspace and updates
+        base_q += ""
 
     if status   and status   in STATUSES:   base_q += " AND t.status = ?";   params.append(status)
     if priority and priority in PRIORITIES: base_q += " AND t.priority = ?"; params.append(priority)

@@ -315,6 +315,9 @@
               <button onclick="loadUsers()" class="bg-tia-600 hover:bg-tia-700 text-white px-4 py-1.5 rounded-lg text-sm transition">
                 <i class="fa-solid fa-magnifying-glass mr-1"></i>Search
               </button>
+              <button onclick="openCreateUserModal()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-1.5 rounded-lg text-sm transition">
+                <i class="fa-solid fa-user-plus mr-1"></i>Add User
+              </button>
             </div>
             <div id="user-table-wrap"></div>
           </div>
@@ -450,6 +453,36 @@
       <div class="px-6 py-4 border-t border-gray-100 flex gap-3 flex-shrink-0">
         <button onclick="saveEdit()" class="bg-tia-600 hover:bg-tia-700 text-white font-semibold px-5 py-2 rounded-lg text-sm transition">Save Changes</button>
         <button onclick="closeEditModal()" class="border border-gray-300 text-gray-600 hover:bg-gray-50 px-5 py-2 rounded-lg text-sm transition">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Create User Modal ═══════════════════════════════════════════════ -->
+  <div id="create-user-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+      <h3 class="text-lg font-semibold mb-4 text-gray-800">Add User</h3>
+      <div id="create-user-error" class="hidden mb-3 p-3 bg-red-50 text-red-700 rounded-lg text-sm"></div>
+      <div class="space-y-3">
+        <input id="cu-name" type="text" placeholder="Full Name"
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tia-500" />
+        <input id="cu-email" type="email" placeholder="Email"
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tia-500" />
+        <input id="cu-company" type="text" placeholder="Company"
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tia-500" />
+        <input id="cu-phone" type="tel" placeholder="Phone"
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tia-500" />
+        <select id="cu-role" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tia-500">
+          <option value="client">Client</option>
+          <option value="agent">Agent</option>
+          <option value="technician">Technician</option>
+          <option value="admin">Admin</option>
+        </select>
+        <input id="cu-password" type="password" placeholder="Temporary password"
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tia-500" />
+      </div>
+      <div class="flex gap-3 mt-5">
+        <button onclick="createUser()" class="bg-tia-600 hover:bg-tia-700 text-white font-semibold px-5 py-2 rounded-lg text-sm transition">Create</button>
+        <button onclick="closeCreateUserModal()" class="border border-gray-300 text-gray-600 hover:bg-gray-50 px-5 py-2 rounded-lg text-sm transition">Cancel</button>
       </div>
     </div>
   </div>

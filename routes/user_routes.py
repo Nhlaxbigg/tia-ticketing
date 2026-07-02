@@ -8,6 +8,45 @@ from database import get_db
 user_bp = Blueprint("users", __name__)
 
 
+@user_bp.route("", methods=["POST"])
+@jwt_required()
+def create_user():
+    uid = int(get_jwt_identity())
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    email = (data.get("email") or "").strip().lower()
+    password = (data.get("password") or "").strip()
+    company = (data.get("company") or "").strip()
+    phone = (data.get("phone") or "").strip()
+    role = (data.get("role") or "client").strip().lower()
+
+    db = get_db()
+    me = db.execute("SELECT role FROM users WHERE id=?", (uid,)).fetchone()
+    if me["role"] not in ("admin", "technician"):
+        db.close(); return jsonify(error="Access denied."), 403
+    if role not in ("client", "agent", "technician") and me["role"] != "admin":
+        db.close(); return jsonify(error="Only admins can create admins."), 403
+    if role not in ("client", "agent", "technician", "admin"):
+        role = "client"
+    if not name or not email or not password:
+        db.close(); return jsonify(error="Name, email and password are required."), 400
+    if len(password) < 8:
+        db.close(); return jsonify(error="Password must be at least 8 characters."), 400
+
+    try:
+        db.execute(
+            "INSERT INTO users (name, email, password, role, company, phone) VALUES (?,?,?,?,?,?)",
+            (name, email, generate_password_hash(password), role, company, phone),
+        )
+        db.commit()
+    except Exception:
+        db.close(); return jsonify(error="Email already registered."), 409
+
+    user = db.execute("SELECT id,name,email,role,company,phone,created_at FROM users WHERE email=?", (email,)).fetchone()
+    db.close()
+    return jsonify(dict(user)), 201
+
+
 @user_bp.route("", methods=["GET"])
 @jwt_required()
 def list_users():

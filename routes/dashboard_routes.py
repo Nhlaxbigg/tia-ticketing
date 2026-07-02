@@ -18,8 +18,6 @@ def stats():
     base = "SELECT * FROM tickets"
     if user["role"] == "client":
         rows = db.execute(base + " WHERE created_by=?", (uid,)).fetchall()
-    elif user["role"] in ("agent", "technician"):
-        rows = db.execute(base + " WHERE assigned_to=? OR status='open'", (uid,)).fetchall()
     else:
         rows = db.execute(base).fetchall()
 
@@ -41,10 +39,9 @@ def stats():
            {}
            ORDER BY t.created_at DESC LIMIT 5""".format(
                "WHERE t.created_by=?" if user["role"] == "client"
-               else "WHERE t.assigned_to=? OR t.status='open'" if user["role"] in ("agent", "technician")
                else ""
            ),
-        (uid,) if user["role"] in ("client","agent","technician") else ()
+        (uid,) if user["role"] == "client" else ()
     ).fetchall()
 
     total_users = db.execute("SELECT COUNT(*) as c FROM users").fetchone()["c"] if user["role"] == "admin" else None

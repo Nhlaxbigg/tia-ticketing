@@ -9,6 +9,7 @@ let editingTicketId = null;
 let editingUserId = null;
 let ticketPage = 1;
 let agentList = [];
+let syncTimer = null;
 
 /* ── Helpers ──────────────────────────────────────────────────────────────── */
 const token = () => localStorage.getItem('tia_token');
@@ -94,6 +95,7 @@ async function doRegister() {
 }
 
 function doLogout() {
+  stopSyncPolling();
   localStorage.removeItem('tia_token');
   currentUser = null;
   hide('app-shell');
@@ -113,8 +115,8 @@ async function bootApp() {
   const initials = currentUser.name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
   setText('sidebar-avatar', initials);
 
-  // Show admin-only nav items
-  if (currentUser.role === 'admin') { show('nav-users'); }
+  // Show staff-only nav items
+  if (currentUser.role === 'admin' || currentUser.role === 'technician') { show('nav-users'); }
 
   // Load agents/technicians BEFORE navigating so the assign dropdown is ready
   if (currentUser.role !== 'client') {
@@ -123,6 +125,7 @@ async function bootApp() {
 
   navigate('dashboard');
   pollNotifications();
+  startSyncPolling();
 }
 
 async function loadAgents() {
@@ -164,6 +167,29 @@ function navigate(view, id = null) {
   if (view === 'ticket-detail')  loadTicketDetail(id || currentTicketId);
   if (view === 'users')          loadUsers();
   if (view === 'notifications')  loadNotifications();
+}
+
+function startSyncPolling() {
+  stopSyncPolling();
+  syncTimer = setInterval(() => {
+    if (!currentUser) return;
+    if (!el('app-shell') || el('app-shell').classList.contains('hidden')) return;
+    if (!el('view-dashboard')?.classList.contains('hidden')) {
+      loadDashboard();
+    } else if (!el('view-tickets')?.classList.contains('hidden')) {
+      loadTickets(ticketPage);
+    } else if (!el('view-ticket-detail')?.classList.contains('hidden') && currentTicketId) {
+      loadTicketDetail(currentTicketId);
+    } else if (!el('view-users')?.classList.contains('hidden')) {
+      loadUsers();
+    } else if (!el('view-notifications')?.classList.contains('hidden')) {
+      loadNotifications();
+    }
+  }, 15000);
+}
+
+function stopSyncPolling() {
+  if (syncTimer) { clearInterval(syncTimer); syncTimer = null; }
 }
 
 /* ── Dashboard ────────────────────────────────────────────────────────────── */
@@ -680,6 +706,47 @@ function renderUserTable(users) {
       </thead>
       <tbody class="divide-y divide-gray-100">${rows}</tbody>
     </table>`);
+}
+
+function openCreateUserModal() {
+  hideError('create-user-error');
+  setVal('cu-name', '');
+  setVal('cu-email', '');
+  setVal('cu-company', '');
+  setVal('cu-phone', '');
+  setVal('cu-password', '');
+  const roleSelect = el('cu-role');
+  if (roleSelect) {
+    const adminOption = Array.from(roleSelect.options).find(o => o.value === 'admin');
+    if (currentUser.role !== 'admin' && adminOption) roleSelect.removeChild(adminOption);
+    if (currentUser.role === 'admin' && !adminOption) {
+      const opt = document.createElement('option');
+      opt.value = 'admin';
+      opt.textContent = 'Admin';
+      roleSelect.appendChild(opt);
+    }
+    roleSelect.value = 'client';
+  }
+  show('create-user-modal');
+}
+
+function closeCreateUserModal() { hide('create-user-modal'); }
+
+async function createUser() {
+  hideError('create-user-error');
+  const payload = {
+    name: val('cu-name'),
+    email: val('cu-email'),
+    company: val('cu-company'),
+    phone: val('cu-phone'),
+    role: val('cu-role'),
+    password: val('cu-password'),
+  };
+  try {
+    await apiFetch('/users', { method: 'POST', body: JSON.stringify(payload) });
+    closeCreateUserModal();
+    loadUsers();
+  } catch(e) { showError('create-user-error', e.message); }
 }
 
 function openUserModal(id, name, company, phone, role) {
