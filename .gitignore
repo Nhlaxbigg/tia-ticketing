@@ -221,3 +221,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# SQLite (legacy, now using Postgres/Neon)
+*.db
