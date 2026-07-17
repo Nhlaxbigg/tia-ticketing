@@ -21,28 +21,33 @@ def create_user():
     role = (data.get("role") or "client").strip().lower()
 
     db = get_db()
-    me = db.execute("SELECT role FROM users WHERE id=?", (uid,)).fetchone()
+    cur = db.cursor()
+    cur.execute("SELECT role FROM users WHERE id=%s", (uid,))
+    me = cur.fetchone()
     if me["role"] not in ("admin", "technician"):
-        db.close(); return jsonify(error="Access denied."), 403
+        cur.close(); db.close(); return jsonify(error="Access denied."), 403
     if role not in ("client", "agent", "technician") and me["role"] != "admin":
-        db.close(); return jsonify(error="Only admins can create admins."), 403
+        cur.close(); db.close(); return jsonify(error="Only admins can create admins."), 403
     if role not in ("client", "agent", "technician", "admin"):
         role = "client"
     if not name or not email or not password:
-        db.close(); return jsonify(error="Name, email and password are required."), 400
+        cur.close(); db.close(); return jsonify(error="Name, email and password are required."), 400
     if len(password) < 8:
-        db.close(); return jsonify(error="Password must be at least 8 characters."), 400
+        cur.close(); db.close(); return jsonify(error="Password must be at least 8 characters."), 400
 
     try:
-        db.execute(
-            "INSERT INTO users (name, email, password, role, company, phone) VALUES (?,?,?,?,?,?)",
+        cur.execute(
+            "INSERT INTO users (name, email, password, role, company, phone) VALUES (%s,%s,%s,%s,%s,%s)",
             (name, email, generate_password_hash(password), role, company, phone),
         )
         db.commit()
     except Exception:
-        db.close(); return jsonify(error="Email already registered."), 409
+        db.rollback()
+        cur.close(); db.close(); return jsonify(error="Email already registered."), 409
 
-    user = db.execute("SELECT id,name,email,role,company,phone,created_at FROM users WHERE email=?", (email,)).fetchone()
+    cur.execute("SELECT id,name,email,role,company,phone,created_at FROM users WHERE email=%s", (email,))
+    user = cur.fetchone()
+    cur.close()
     db.close()
     return jsonify(dict(user)), 201
 
@@ -52,18 +57,22 @@ def create_user():
 def list_users():
     uid  = int(get_jwt_identity())
     db   = get_db()
-    user = db.execute("SELECT role FROM users WHERE id=?", (uid,)).fetchone()
+    cur  = db.cursor()
+    cur.execute("SELECT role FROM users WHERE id=%s", (uid,))
+    user = cur.fetchone()
     if user["role"] not in ("admin", "agent", "technician"):
-        db.close(); return jsonify(error="Access denied."), 403
+        cur.close(); db.close(); return jsonify(error="Access denied."), 403
 
     role   = request.args.get("role", "")
     search = request.args.get("q", "")
     q = "SELECT id,name,email,role,company,phone,created_at FROM users WHERE 1=1"
     params = []
-    if role:   q += " AND role=?";                    params.append(role)
-    if search: q += " AND (name LIKE ? OR email LIKE ?)"; params += [f"%{search}%", f"%{search}%"]
+    if role:   q += " AND role=%s";                    params.append(role)
+    if search: q += " AND (name ILIKE %s OR email ILIKE %s)"; params += [f"%{search}%", f"%{search}%"]
     q += " ORDER BY created_at DESC"
-    rows = db.execute(q, params).fetchall()
+    cur.execute(q, params)
+    rows = cur.fetchall()
+    cur.close()
     db.close()
     return jsonify(users=[dict(r) for r in rows])
 
@@ -73,12 +82,16 @@ def list_users():
 def get_user(user_id):
     uid  = int(get_jwt_identity())
     db   = get_db()
-    me   = db.execute("SELECT role FROM users WHERE id=?", (uid,)).fetchone()
+    cur  = db.cursor()
+    cur.execute("SELECT role FROM users WHERE id=%s", (uid,))
+    me = cur.fetchone()
     if me["role"] not in ("admin",) and uid != user_id:
-        db.close(); return jsonify(error="Access denied."), 403
-    user = db.execute(
-        "SELECT id,name,email,role,company,phone,created_at FROM users WHERE id=?", (user_id,)
-    ).fetchone()
+        cur.close(); db.close(); return jsonify(error="Access denied."), 403
+    cur.execute(
+        "SELECT id,name,email,role,company,phone,created_at FROM users WHERE id=%s", (user_id,)
+    )
+    user = cur.fetchone()
+    cur.close()
     db.close()
     if not user: return jsonify(error="User not found."), 404
     return jsonify(dict(user))
@@ -90,30 +103,34 @@ def update_user(user_id):
     uid  = int(get_jwt_identity())
     data = request.get_json(silent=True) or {}
     db   = get_db()
-    me   = db.execute("SELECT role FROM users WHERE id=?", (uid,)).fetchone()
+    cur  = db.cursor()
+    cur.execute("SELECT role FROM users WHERE id=%s", (uid,))
+    me = cur.fetchone()
 
     if me["role"] not in ("admin",) and uid != user_id:
-        db.close(); return jsonify(error="Access denied."), 403
+        cur.close(); db.close(); return jsonify(error="Access denied."), 403
 
     fields, params = [], []
     for f in ("name", "company", "phone"):
         if f in data:
-            fields.append(f"{f}=?"); params.append(data[f])
+            fields.append(f"{f}=%s"); params.append(data[f])
     if "role" in data and me["role"] == "admin":
-        fields.append("role=?"); params.append(data["role"])
+        fields.append("role=%s"); params.append(data["role"])
     if "password" in data:
         if len(data["password"]) < 8:
-            db.close(); return jsonify(error="Password must be ≥ 8 characters."), 400
-        fields.append("password=?"); params.append(generate_password_hash(data["password"]))
+            cur.close(); db.close(); return jsonify(error="Password must be ≥ 8 characters."), 400
+        fields.append("password=%s"); params.append(generate_password_hash(data["password"]))
 
     if fields:
         params.append(user_id)
-        db.execute(f"UPDATE users SET {', '.join(fields)} WHERE id=?", params)
+        cur.execute(f"UPDATE users SET {', '.join(fields)} WHERE id=%s", params)
         db.commit()
 
-    user = db.execute(
-        "SELECT id,name,email,role,company,phone,created_at FROM users WHERE id=?", (user_id,)
-    ).fetchone()
+    cur.execute(
+        "SELECT id,name,email,role,company,phone,created_at FROM users WHERE id=%s", (user_id,)
+    )
+    user = cur.fetchone()
+    cur.close()
     db.close()
     return jsonify(dict(user))
 
@@ -123,13 +140,16 @@ def update_user(user_id):
 def delete_user(user_id):
     uid  = int(get_jwt_identity())
     db   = get_db()
-    me   = db.execute("SELECT role FROM users WHERE id=?", (uid,)).fetchone()
+    cur  = db.cursor()
+    cur.execute("SELECT role FROM users WHERE id=%s", (uid,))
+    me = cur.fetchone()
     if me["role"] != "admin":
-        db.close(); return jsonify(error="Admins only."), 403
+        cur.close(); db.close(); return jsonify(error="Admins only."), 403
     if uid == user_id:
-        db.close(); return jsonify(error="Cannot delete yourself."), 400
-    db.execute("DELETE FROM users WHERE id=?", (user_id,))
+        cur.close(); db.close(); return jsonify(error="Cannot delete yourself."), 400
+    cur.execute("DELETE FROM users WHERE id=%s", (user_id,))
     db.commit()
+    cur.close()
     db.close()
     return jsonify(message="User deleted.")
 
@@ -139,9 +159,12 @@ def delete_user(user_id):
 def get_notifications():
     uid = int(get_jwt_identity())
     db  = get_db()
-    rows = db.execute(
-        "SELECT * FROM notifications WHERE user_id=? ORDER BY created_at DESC LIMIT 50", (uid,)
-    ).fetchall()
+    cur = db.cursor()
+    cur.execute(
+        "SELECT * FROM notifications WHERE user_id=%s ORDER BY created_at DESC LIMIT 50", (uid,)
+    )
+    rows = cur.fetchall()
+    cur.close()
     db.close()
     return jsonify(notifications=[dict(r) for r in rows])
 
@@ -151,7 +174,9 @@ def get_notifications():
 def mark_notifications_read():
     uid = int(get_jwt_identity())
     db  = get_db()
-    db.execute("UPDATE notifications SET is_read=1 WHERE user_id=?", (uid,))
+    cur = db.cursor()
+    cur.execute("UPDATE notifications SET is_read=1 WHERE user_id=%s", (uid,))
     db.commit()
+    cur.close()
     db.close()
     return jsonify(message="All marked as read.")
