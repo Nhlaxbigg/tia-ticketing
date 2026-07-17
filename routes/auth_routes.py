@@ -28,15 +28,18 @@ def register():
         return jsonify(error="Password must be at least 8 characters."), 400
 
     db = get_db()
+    cur = db.cursor()
     try:
-        db.execute(
-            "INSERT INTO users (name, email, password, role, company, phone) VALUES (?,?,?,?,?,?)",
+        cur.execute(
+            "INSERT INTO users (name, email, password, role, company, phone) VALUES (%s,%s,%s,%s,%s,%s)",
             (name, email, generate_password_hash(password), role, company, phone),
         )
         db.commit()
     except Exception:
+        db.rollback()
         return jsonify(error="Email already registered."), 409
     finally:
+        cur.close()
         db.close()
 
     return jsonify(message="Account created. Please log in."), 201
@@ -51,8 +54,11 @@ def login():
     if not email or not password:
         return jsonify(error="Email and password required."), 400
 
-    db   = get_db()
-    user = db.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+    db  = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT * FROM users WHERE email = %s", (email,))
+    user = cur.fetchone()
+    cur.close()
     db.close()
 
     if not user or not check_password_hash(user["password"], password):
@@ -72,7 +78,10 @@ def login():
 def me():
     uid = int(get_jwt_identity())
     db  = get_db()
-    user = db.execute("SELECT id,name,email,role,company,phone,created_at FROM users WHERE id=?", (uid,)).fetchone()
+    cur = db.cursor()
+    cur.execute("SELECT id,name,email,role,company,phone,created_at FROM users WHERE id=%s", (uid,))
+    user = cur.fetchone()
+    cur.close()
     db.close()
     if not user:
         return jsonify(error="User not found."), 404
