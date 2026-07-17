@@ -13,13 +13,16 @@ dashboard_bp = Blueprint("dashboard", __name__)
 def stats():
     uid = int(get_jwt_identity())
     db  = get_db()
-    user = db.execute("SELECT role FROM users WHERE id=?", (uid,)).fetchone()
+    cur = db.cursor()
+    cur.execute("SELECT role FROM users WHERE id=%s", (uid,))
+    user = cur.fetchone()
 
     base = "SELECT * FROM tickets"
     if user["role"] == "client":
-        rows = db.execute(base + " WHERE created_by=?", (uid,)).fetchall()
+        cur.execute(base + " WHERE created_by=%s", (uid,))
     else:
-        rows = db.execute(base).fetchall()
+        cur.execute(base)
+    rows = cur.fetchall()
 
     tickets = [dict(r) for r in rows]
 
@@ -32,20 +35,26 @@ def stats():
         by_category[t["category"]] = by_category.get(t["category"],0) + 1
 
     # Recent 5 tickets
-    recent = db.execute(
+    cur.execute(
         """SELECT t.id, t.ticket_no, t.title, t.status, t.priority, t.created_at,
                   u.name as creator_name
            FROM tickets t JOIN users u ON t.created_by=u.id
            {}
            ORDER BY t.created_at DESC LIMIT 5""".format(
-               "WHERE t.created_by=?" if user["role"] == "client"
+               "WHERE t.created_by=%s" if user["role"] == "client"
                else ""
            ),
         (uid,) if user["role"] == "client" else ()
-    ).fetchall()
+    )
+    recent = cur.fetchall()
 
-    total_users = db.execute("SELECT COUNT(*) as c FROM users").fetchone()["c"] if user["role"] == "admin" else None
+    if user["role"] == "admin":
+        cur.execute("SELECT COUNT(*) as c FROM users")
+        total_users = cur.fetchone()["c"]
+    else:
+        total_users = None
 
+    cur.close()
     db.close()
     return jsonify(
         total=len(tickets),
