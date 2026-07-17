@@ -18,37 +18,42 @@ def add_comment(ticket_id):
         return jsonify(error="Comment body is required."), 400
 
     db   = get_db()
-    user = db.execute("SELECT role FROM users WHERE id=?", (uid,)).fetchone()
-    t    = db.execute("SELECT * FROM tickets WHERE id=?", (ticket_id,)).fetchone()
+    cur  = db.cursor()
+    cur.execute("SELECT role FROM users WHERE id=%s", (uid,))
+    user = cur.fetchone()
+    cur.execute("SELECT * FROM tickets WHERE id=%s", (ticket_id,))
+    t = cur.fetchone()
 
     if not t:
-        db.close(); return jsonify(error="Ticket not found."), 404
+        cur.close(); db.close(); return jsonify(error="Ticket not found."), 404
     if user["role"] == "client" and t["created_by"] != uid:
-        db.close(); return jsonify(error="Access denied."), 403
+        cur.close(); db.close(); return jsonify(error="Access denied."), 403
 
     is_internal = int(bool(data.get("is_internal"))) if user["role"] in ("admin","agent","technician") else 0
 
-    cur = db.execute(
-        "INSERT INTO comments (ticket_id, user_id, body, is_internal) VALUES (?,?,?,?)",
+    cur.execute(
+        "INSERT INTO comments (ticket_id, user_id, body, is_internal) VALUES (%s,%s,%s,%s) RETURNING id",
         (ticket_id, uid, body, is_internal)
     )
-    comment_id = cur.lastrowid
+    comment_id = cur.fetchone()["id"]
 
     # Update ticket updated_at
-    db.execute("UPDATE tickets SET updated_at=datetime('now') WHERE id=?", (ticket_id,))
+    cur.execute("UPDATE tickets SET updated_at=NOW() WHERE id=%s", (ticket_id,))
 
     # Notify other party
     notify_uid = t["created_by"] if uid != t["created_by"] else (t["assigned_to"] or None)
     if notify_uid and notify_uid != uid:
-        db.execute(
-            "INSERT INTO notifications (user_id, message, link) VALUES (?,?,?)",
+        cur.execute(
+            "INSERT INTO notifications (user_id, message, link) VALUES (%s,%s,%s)",
             (notify_uid, f"New reply on ticket {t['ticket_no']}", f"/ticket/{ticket_id}")
         )
 
     db.commit()
-    comment = db.execute(
-        "SELECT c.*, u.name as author_name, u.role as author_role FROM comments c JOIN users u ON c.user_id=u.id WHERE c.id=?",
+    cur.execute(
+        "SELECT c.*, u.name as author_name, u.role as author_role FROM comments c JOIN users u ON c.user_id=u.id WHERE c.id=%s",
         (comment_id,)
-    ).fetchone()
+    )
+    comment = cur.fetchone()
+    cur.close()
     db.close()
     return jsonify(dict(comment)), 201
