@@ -127,9 +127,8 @@ def init_db():
 def next_ticket_no():
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT COUNT(*) as cnt FROM tickets")
-    row = c.fetchone()
-    num = (row["cnt"] or 0) + 1
+    c.execute("SELECT nextval('ticket_no_seq') as num")
+    num = c.fetchone()["num"]
     c.close()
     conn.close()
     return f"TIA-{num:05d}"
