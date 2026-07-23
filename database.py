@@ -101,6 +101,8 @@ def init_db():
         )
     """)
 
+    c.execute("CREATE SEQUENCE IF NOT EXISTS ticket_no_seq START 1")
+    
     conn.commit()
 
     # Seed default admin + demo agent
