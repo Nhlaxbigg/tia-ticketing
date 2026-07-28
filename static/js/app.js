@@ -10,6 +10,8 @@ let editingUserId = null;
 let ticketPage = 1;
 let agentList = [];
 let syncTimer = null;
+let currentClientId = null;
+let clientList = [];
 
 /* ── Helpers ──────────────────────────────────────────────────────────────── */
 const token = () => localStorage.getItem('tia_token');
@@ -125,6 +127,7 @@ async function bootApp() {
 
   // Show staff-only nav items
   if (currentUser.role === 'admin' || currentUser.role === 'technician') { show('nav-users'); }
+  if (currentUser.role !== 'client') { show('nav-clients'); }
 
   // Load agents/technicians BEFORE navigating so the assign dropdown is ready
   if (currentUser.role !== 'client') {
@@ -148,7 +151,7 @@ async function loadAgents() {
 }
 
 /* ── Navigation ───────────────────────────────────────────────────────────── */
-const VIEWS = ['dashboard','tickets','new-ticket','ticket-detail','users','notifications'];
+const VIEWS = ['dashboard','tickets','new-ticket','ticket-detail','users','clients','notifications'];
 
 function navigate(view, id = null) {
   VIEWS.forEach(v => hide(`view-${v}`));
@@ -160,6 +163,7 @@ function navigate(view, id = null) {
     'new-ticket':    'Submit New Ticket',
     'ticket-detail': 'Ticket Detail',
     'users':         'User Management',
+    'clients':       'Clients',
     'notifications': 'Notifications',
   };
   setText('page-title', titles[view] || '');
@@ -174,6 +178,7 @@ function navigate(view, id = null) {
   if (view === 'new-ticket')     resetNewTicket();
   if (view === 'ticket-detail')  loadTicketDetail(id || currentTicketId);
   if (view === 'users')          loadUsers();
+  if (view === 'clients')        { closeClientDetail(); loadClients(); }
   if (view === 'notifications')  loadNotifications();
 }
 
@@ -339,6 +344,46 @@ function resetNewTicket() {
   ['nt-title','nt-description'].forEach(id => setVal(id,''));
   setVal('nt-category','it_support');
   setVal('nt-priority','medium');
+
+  if (currentUser.role !== 'client') {
+    show('nt-behalf-wrap');
+    populateNewTicketClients();
+  } else {
+    hide('nt-behalf-wrap');
+  }
+}
+
+async function populateNewTicketClients() {
+  try {
+    if (clientList.length === 0) {
+      const data = await apiFetch('/clients');
+      clientList = data.clients || [];
+    }
+    const sel = el('nt-client');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">— Log as myself —</option>' +
+      clientList.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+    el('nt-contact').innerHTML = '<option value="">— Select a client first —</option>';
+  } catch(_) {}
+}
+
+async function onNewTicketClientChange() {
+  const clientId = val('nt-client');
+  const sel = el('nt-contact');
+  if (!clientId) {
+    sel.innerHTML = '<option value="">— Select a client first —</option>';
+    return;
+  }
+  sel.innerHTML = '<option value="">Loading…</option>';
+  try {
+    const client = await apiFetch(`/clients/${clientId}`);
+    const contacts = client.contacts || [];
+    sel.innerHTML = contacts.length
+      ? contacts.map(c => `<option value="${c.id}">${esc(c.name)} (${esc(c.email)})</option>`).join('')
+      : '<option value="">No contacts for this client yet</option>';
+  } catch(e) {
+    sel.innerHTML = '<option value="">Failed to load contacts</option>';
+  }
 }
 
 async function submitTicket() {
@@ -348,6 +393,7 @@ async function submitTicket() {
   if (!title || !description) {
     return showError('new-ticket-error', 'Title and description are required.');
   }
+  const onBehalfOf = currentUser.role !== 'client' ? val('nt-contact') : '';
   try {
     const t = await apiFetch('/tickets', {
       method: 'POST',
@@ -357,6 +403,7 @@ async function submitTicket() {
         priority:      val('nt-priority'),
         request_level: val('nt-request-level'),
         support_type:  val('nt-support-type'),
+        ...(onBehalfOf ? { on_behalf_of: parseInt(onBehalfOf) } : {}),
       }),
     });
     navigate('ticket-detail', t.id);
@@ -896,6 +943,147 @@ document.addEventListener('keydown', e => {
     if (!el('user-modal').classList.contains('hidden'))  saveUserEdit();
   }
 });
+
+/* ── Clients ──────────────────────────────────────────────────────────────── */
+async function loadClients() {
+  const q = val('client-search');
+  const params = new URLSearchParams();
+  if (q) params.set('q', q);
+
+  setInner('client-table-wrap', '<div class="flex justify-center py-12"><div class="spinner"></div></div>');
+  try {
+    const data = await apiFetch(`/clients?${params}`);
+    clientList = data.clients || [];
+    renderClientTable(clientList);
+  } catch(e) { setInner('client-table-wrap', `<p class="text-red-500 p-4">${e.message}</p>`); }
+}
+
+function renderClientTable(clients) {
+  const rows = clients.map(c => `
+    <tr>
+      <td class="px-4 py-3 text-sm font-medium text-gray-800">
+        <button onclick="openClientDetail(${c.id})" class="text-tia-600 hover:underline">${esc(c.name)}</button>
+      </td>
+      <td class="px-4 py-3 text-sm text-gray-600">${c.contact_count} contact${c.contact_count == 1 ? '' : 's'}</td>
+      <td class="px-4 py-3 text-sm text-gray-500">${esc(c.notes || '—')}</td>
+      <td class="px-4 py-3 text-xs text-gray-400">${fmt(c.created_at)}</td>
+      <td class="px-4 py-3 text-right">
+        <button onclick="openClientDetail(${c.id})" class="text-tia-600 hover:underline text-sm mr-3">View</button>
+        ${currentUser.role === 'admin' ? `<button onclick="deleteClient(${c.id})" class="text-red-500 hover:underline text-sm">Delete</button>` : ''}
+      </td>
+    </tr>`).join('') || '<tr><td colspan="5" class="px-4 py-10 text-center text-gray-400">No clients found</td></tr>';
+
+  setInner('client-table-wrap', `
+    <table class="w-full text-left">
+      <thead class="text-xs text-gray-500 uppercase bg-gray-50">
+        <tr>
+          <th class="px-4 py-3">Company</th>
+          <th class="px-4 py-3">Contacts</th>
+          <th class="px-4 py-3">Notes</th>
+          <th class="px-4 py-3">Added</th>
+          <th class="px-4 py-3 text-right">Actions</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">${rows}</tbody>
+    </table>`);
+}
+
+function openCreateClientModal() {
+  hideError('create-client-error');
+  setVal('cc-name', '');
+  setVal('cc-notes', '');
+  show('create-client-modal');
+}
+function closeCreateClientModal() { hide('create-client-modal'); }
+
+async function createClient() {
+  hideError('create-client-error');
+  try {
+    await apiFetch('/clients', {
+      method: 'POST',
+      body: JSON.stringify({ name: val('cc-name'), notes: val('cc-notes') }),
+    });
+    closeCreateClientModal();
+    clientList = []; // force refresh next time new-ticket picker loads
+    loadClients();
+  } catch(e) { showError('create-client-error', e.message); }
+}
+
+async function deleteClient(id) {
+  if (!confirm('Delete this client? This only works if it has no contacts.')) return;
+  try {
+    await apiFetch(`/clients/${id}`, { method: 'DELETE' });
+    clientList = [];
+    loadClients();
+  } catch(e) { alert(e.message); }
+}
+
+async function openClientDetail(id) {
+  currentClientId = id;
+  hide('client-table-wrap');
+  show('client-detail-panel');
+  setText('client-detail-name', 'Loading…');
+  setInner('client-contacts-wrap', '<div class="flex justify-center py-12"><div class="spinner"></div></div>');
+  try {
+    const client = await apiFetch(`/clients/${id}`);
+    setText('client-detail-name', client.name);
+    renderClientContacts(client.contacts || []);
+  } catch(e) { setInner('client-contacts-wrap', `<p class="text-red-500 p-4">${e.message}</p>`); }
+}
+
+function closeClientDetail() {
+  currentClientId = null;
+  hide('client-detail-panel');
+  show('client-table-wrap');
+}
+
+function renderClientContacts(contacts) {
+  const rows = contacts.map(c => `
+    <tr>
+      <td class="px-4 py-3 text-sm font-medium text-gray-800">${esc(c.name)}</td>
+      <td class="px-4 py-3 text-sm text-gray-600">${esc(c.email)}</td>
+      <td class="px-4 py-3 text-sm text-gray-500">${esc(c.phone || '—')}</td>
+      <td class="px-4 py-3 text-xs text-gray-400">${fmt(c.created_at)}</td>
+    </tr>`).join('') || '<tr><td colspan="4" class="px-4 py-10 text-center text-gray-400">No contacts yet</td></tr>';
+
+  setInner('client-contacts-wrap', `
+    <table class="w-full text-left">
+      <thead class="text-xs text-gray-500 uppercase bg-gray-50">
+        <tr>
+          <th class="px-4 py-3">Name</th>
+          <th class="px-4 py-3">Email</th>
+          <th class="px-4 py-3">Phone</th>
+          <th class="px-4 py-3">Added</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">${rows}</tbody>
+    </table>`);
+}
+
+function openAddContactModal() {
+  hideError('add-contact-error');
+  ['ac-name','ac-email','ac-phone','ac-password'].forEach(id => setVal(id, ''));
+  show('add-contact-modal');
+}
+function closeAddContactModal() { hide('add-contact-modal'); }
+
+async function createClientContact() {
+  hideError('add-contact-error');
+  if (!currentClientId) return;
+  try {
+    await apiFetch(`/clients/${currentClientId}/users`, {
+      method: 'POST',
+      body: JSON.stringify({
+        name:     val('ac-name'),
+        email:    val('ac-email'),
+        phone:    val('ac-phone'),
+        password: val('ac-password'),
+      }),
+    });
+    closeAddContactModal();
+    openClientDetail(currentClientId);
+  } catch(e) { showError('add-contact-error', e.message); }
+}
 
 /* ── Init ─────────────────────────────────────────────────────────────────── */
 (async function init() {
