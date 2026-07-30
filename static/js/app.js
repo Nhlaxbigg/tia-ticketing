@@ -249,7 +249,7 @@ function startSyncPolling() {
     } else if (!el('view-notifications')?.classList.contains('hidden')) {
       loadNotifications();
     }
-  }, 15000);
+  }, 90000); // 90s — was 15s
 }
 
 function stopSyncPolling() {
