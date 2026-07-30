@@ -70,6 +70,25 @@ function supportTypeLabel(s) {
   return m[s] || s || '—';
 }
 
+function slaBadge(t) {
+  // Resolved/closed tickets: show whether resolution SLA was ultimately met, not live countdown
+  const closed = t.status === 'resolved' || t.status === 'closed';
+  if (t.sla_resolution_breached) {
+    return `<span class="badge" style="background:#fee2e2;color:#b91c1c;">
+      <i class="fa-solid fa-triangle-exclamation mr-1"></i>SLA Breached</span>`;
+  }
+  if (t.sla_response_breached) {
+    return `<span class="badge" style="background:#fef3c7;color:#92400e;">
+      <i class="fa-solid fa-clock mr-1"></i>Response Overdue</span>`;
+  }
+  if (closed) {
+    return `<span class="badge" style="background:#dcfce7;color:#166534;">
+      <i class="fa-solid fa-check mr-1"></i>Met SLA</span>`;
+  }
+  return `<span class="badge" style="background:#e0e7ff;color:#3730a3;">
+    <i class="fa-solid fa-hourglass-half mr-1"></i>On Track</span>`;
+}
+
 /* ── Auth ─────────────────────────────────────────────────────────────────── */
 function showLogin()    { hide('register-form'); show('login-form'); hideError('login-error'); hideError('reg-error'); hideError('reg-success'); }
 function showRegister() { hide('login-form'); show('register-form'); }
@@ -221,7 +240,8 @@ function renderDashboard(d) {
     { label:'Open',        val: byStatus.open || 0,         icon:'fa-folder-open',     color:'text-blue-600' },
     { label:'In Progress', val: byStatus.in_progress || 0,  icon:'fa-gears',           color:'text-yellow-600' },
     { label:'Resolved',    val: byStatus.resolved || 0,     icon:'fa-circle-check',    color:'text-green-600' },
-    { label:'Critical',    val: (d.by_priority||{}).critical||0, icon:'fa-triangle-exclamation', color:'text-red-600' },
+    { label:'SLA Breached', val: d.sla_resolution_breached || 0, icon:'fa-triangle-exclamation', color:'text-red-600' },
+    { label:'Response Overdue', val: d.sla_response_breached || 0, icon:'fa-clock', color:'text-amber-600' },
     ...(d.total_users != null ? [{ label:'Users', val: d.total_users, icon:'fa-users', color:'text-purple-600' }] : []),
   ];
 
@@ -244,7 +264,7 @@ function renderDashboard(d) {
     </tr>`).join('') || '<tr><td colspan="5" class="px-4 py-8 text-center text-gray-400">No tickets yet</td></tr>';
 
   return `
-    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">${cards}</div>
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-4 mb-8">${cards}</div>
     <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
       <div class="px-5 py-3 border-b border-gray-200 font-medium text-gray-700 text-sm">Recent Tickets</div>
       <table class="w-full text-left">
@@ -295,23 +315,25 @@ function renderTicketTable(data) {
         <div class="text-xs text-gray-400 mt-0.5">${esc(t.creator_name || '')}</div>
       </td>
       <td class="px-4 py-3">${badge(t.status, t.status)}</td>
+      <td class="px-4 py-3 whitespace-nowrap">${slaBadge(t)}</td>
       <td class="px-4 py-3 text-xs text-gray-600">${supportTypeLabel(t.support_type)}</td>
       <td class="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">${fmt(t.created_at)}</td>
       <td class="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">${t.start_time ? fmt(t.start_time) : '—'}</td>
       <td class="px-4 py-3 text-xs text-gray-600 font-medium">${esc(t.hours_worked || '—')}</td>
       <td class="px-4 py-3 text-xs text-gray-500">${esc(t.assignee_name || '—')}</td>
       <td class="px-4 py-3 text-xs text-gray-500">${esc(t.invoice_no || '—')}</td>
-    </tr>`).join('') || '<tr><td colspan="10" class="px-4 py-10 text-center text-gray-400">No tickets found</td></tr>';
+    </tr>`).join('') || '<tr><td colspan="11" class="px-4 py-10 text-center text-gray-400">No tickets found</td></tr>';
 
   setInner('ticket-table-wrap', `
     <div class="overflow-x-auto">
-    <table class="w-full text-left" style="min-width:900px">
+    <table class="w-full text-left" style="min-width:1000px">
       <thead class="text-xs text-gray-500 uppercase bg-gray-50">
         <tr>
           <th class="px-4 py-3">Ticket #</th>
           <th class="px-4 py-3">Level</th>
           <th class="px-4 py-3">Request / Requester</th>
           <th class="px-4 py-3">Status</th>
+          <th class="px-4 py-3">SLA</th>
           <th class="px-4 py-3">Remote/On-site</th>
           <th class="px-4 py-3">Logged Time</th>
           <th class="px-4 py-3">Start Time</th>
@@ -507,6 +529,22 @@ function renderTicketDetail(t) {
 
       <!-- Right: meta -->
       <div class="space-y-4">
+        <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
+          <h3 class="font-semibold text-gray-700 text-sm border-b border-gray-100 pb-2 flex items-center justify-between">
+            SLA Status ${slaBadge(t)}
+          </h3>
+          <div class="text-sm">
+            <div class="text-gray-500 text-xs mb-0.5">First Response Due</div>
+            <div class="${t.sla_response_breached && !t.first_response_at ? 'text-red-600 font-medium' : ''}">${t.sla_response_due ? fmt(t.sla_response_due) : '—'}</div>
+            ${t.first_response_at ? `<div class="text-xs text-gray-400 mt-0.5">Responded: ${fmt(t.first_response_at)}</div>` : ''}
+          </div>
+          <div class="text-sm">
+            <div class="text-gray-500 text-xs mb-0.5">Resolution Due</div>
+            <div class="${t.sla_resolution_breached && !t.resolved_at ? 'text-red-600 font-medium' : ''}">${t.sla_resolution_due ? fmt(t.sla_resolution_due) : '—'}</div>
+            ${t.resolved_at ? `<div class="text-xs text-gray-400 mt-0.5">Resolved: ${fmt(t.resolved_at)}</div>` : ''}
+          </div>
+        </div>
+
         <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
           <h3 class="font-semibold text-gray-700 text-sm border-b border-gray-100 pb-2">Ticket Info</h3>
           <div class="text-sm">
