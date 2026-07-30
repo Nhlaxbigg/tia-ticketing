@@ -1,10 +1,14 @@
 """Ticket routes — CRUD + assignment + status change + SLA + audit log"""
 
+import os
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from database import get_db, next_ticket_no, sla_due_dates, sla_status, log_action
+from mailer import send_email, render_ack_email, render_resolved_email, render_assignment_email
 
 ticket_bp = Blueprint("tickets", __name__)
+
+APP_BASE_URL = os.environ.get("APP_BASE_URL", "")  # e.g. https://tia-ticketing-1.onrender.com
 
 CATEGORIES     = {"cloud", "network_security", "voip", "it_support", "hardware", "general"}
 PRIORITIES     = {"low", "medium", "high", "critical"}
@@ -150,13 +154,27 @@ def create_ticket():
     db.commit()
 
     cur.execute(
-        """SELECT t.*, u1.name as creator_name
+        """SELECT t.*, u1.name as creator_name, u1.email as creator_email, u1.role as creator_role
            FROM tickets t JOIN users u1 ON t.created_by=u1.id
            WHERE t.id=%s""", (ticket_id,)
     )
     ticket = cur.fetchone()
     cur.close()
     db.close()
+
+    if ticket["creator_role"] == "client":
+        html_body = render_ack_email(
+            client_name=ticket["creator_name"],
+            ticket_no=ticket["ticket_no"],
+            title=ticket["title"],
+            date_received=ticket["created_at"].strftime("%d %B %Y %H:%M"),
+        )
+        send_email(
+            ticket["creator_email"], ticket["creator_name"],
+            f"Acknowledgement of Your Request – {ticket['creator_name']}",
+            html_body
+        )
+
     return jsonify(_with_sla(ticket)), 201
 
 
@@ -252,6 +270,7 @@ def update_ticket(ticket_id):
 
     fields, params = [], []
     audit_notes = []
+    just_resolved = False
 
     # Clients can only update title/description on open tickets
     if user["role"] == "client":
@@ -274,7 +293,8 @@ def update_ticket(ticket_id):
         if "status" in data and data["status"] in STATUSES:
             fields.append("status = %s"); params.append(data["status"])
             audit_notes.append(f"status: {t['status']} → {data['status']}")
-            if data["status"] in ("resolved", "closed") and not t["resolved_at"]:
+            just_resolved = data["status"] in ("resolved", "closed") and not t["resolved_at"]
+            if just_resolved:
                 fields.append("resolved_at = NOW()")
 
         if "assigned_to" in data and user["role"] in STAFF_ROLES:
@@ -312,8 +332,23 @@ def update_ticket(ticket_id):
         )
         db.commit()
 
+        cur.execute("SELECT name, email FROM users WHERE id=%s", (data["assigned_to"],))
+        assignee = cur.fetchone()
+        if assignee and assignee["email"]:
+            ticket_link = f"{APP_BASE_URL}/ticket/{ticket_id}" if APP_BASE_URL else None
+            html_body = render_assignment_email(
+                technician_name=assignee["name"],
+                ticket_no=t["ticket_no"],
+                title=data.get("title", t["title"]),
+                request_level=data.get("request_level", t["request_level"]),
+                priority=data.get("priority", t["priority"]),
+                ticket_link=ticket_link,
+            )
+            send_email(assignee["email"], assignee["name"], f"Ticket Assigned – {t['ticket_no']}", html_body)
+
     cur.execute(
-        """SELECT t.*, u1.name as creator_name, u2.name as assignee_name
+        """SELECT t.*, u1.name as creator_name, u1.email as creator_email, u1.role as creator_role,
+                  u2.name as assignee_name
            FROM tickets t JOIN users u1 ON t.created_by=u1.id
            LEFT JOIN users u2 ON t.assigned_to=u2.id
            WHERE t.id=%s""", (ticket_id,)
@@ -321,6 +356,22 @@ def update_ticket(ticket_id):
     updated = cur.fetchone()
     cur.close()
     db.close()
+
+    if just_resolved and updated["creator_role"] == "client":
+        html_body = render_resolved_email(
+            client_name=updated["creator_name"],
+            ticket_no=updated["ticket_no"],
+            title=updated["title"],
+            date_logged=updated["created_at"].strftime("%d %B %Y %H:%M"),
+            date_resolved=updated["resolved_at"].strftime("%d %B %Y %H:%M"),
+            technician_name=updated["assignee_name"],
+        )
+        send_email(
+            updated["creator_email"], updated["creator_name"],
+            f"Your Request Has Been Resolved – {updated['ticket_no']}",
+            html_body
+        )
+
     return jsonify(_with_sla(updated))
 
 
