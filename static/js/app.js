@@ -974,7 +974,7 @@ async function markAllRead() {
 
 async function pollNotifications() {
   updateBadge();
-  setInterval(updateBadge, 30000);
+  setInterval(updateBadge, 90000); // 90s — was 30s
 }
 
 async function updateBadge() {
