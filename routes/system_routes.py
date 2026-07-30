@@ -3,10 +3,12 @@
 import os
 from flask import Blueprint, request, jsonify
 from database import get_db, sla_status, log_action
+from mailer import send_email, render_sla_reminder_email
 
 system_bp = Blueprint("system", __name__)
 
 CRON_SECRET = os.environ.get("CRON_SECRET")
+APP_BASE_URL = os.environ.get("APP_BASE_URL", "")  # e.g. https://tia-ticketing-1.onrender.com — used to build links in emails
 REMINDER_COOLDOWN_HOURS = 4  # don't re-notify the same ticket more than once per this window
 OPEN_STATUSES = ("open", "in_progress", "pending")
 
@@ -49,18 +51,31 @@ def check_sla():
 
         message = f"SLA breach ({breach_text}) on {t['ticket_no']}: {t['title']}"
 
-        # Recipient: assigned technician, or every staff member if unassigned
+        # Recipients: assigned technician, or every staff member if unassigned
         if t["assigned_to"]:
-            recipients = [t["assigned_to"]]
+            cur.execute("SELECT id, name, email FROM users WHERE id=%s", (t["assigned_to"],))
+            recipients = cur.fetchall()
         else:
-            cur.execute("SELECT id FROM users WHERE role IN ('admin','agent','technician')")
-            recipients = [r["id"] for r in cur.fetchall()]
+            cur.execute("SELECT id, name, email FROM users WHERE role IN ('admin','agent','technician')")
+            recipients = cur.fetchall()
 
-        for uid in recipients:
+        ticket_link = f"{APP_BASE_URL}/ticket/{t['id']}" if APP_BASE_URL else None
+
+        for r in recipients:
             cur.execute(
                 "INSERT INTO notifications (user_id, message, link) VALUES (%s,%s,%s)",
-                (uid, message, f"/ticket/{t['id']}")
+                (r["id"], message, f"/ticket/{t['id']}")
             )
+            if r["email"]:
+                html_body = render_sla_reminder_email(
+                    technician_name=r["name"],
+                    ticket_no=t["ticket_no"],
+                    title=t["title"],
+                    request_level=t["request_level"],
+                    breach_text=breach_text,
+                    ticket_link=ticket_link,
+                )
+                send_email(r["email"], r["name"], f"SLA Breach Alert – {t['ticket_no']}", html_body)
 
         log_action(cur, t["id"], None, "sla_reminder", breach_text)
         cur.execute("UPDATE tickets SET last_sla_reminder_at = NOW() WHERE id=%s", (t["id"],))
