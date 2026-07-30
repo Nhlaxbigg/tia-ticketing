@@ -1,72 +1,203 @@
-"""System/automation routes — SLA reminder job, triggered by an external scheduler."""
+"""
+Outbound email — acknowledgement & resolution notices to clients.
+
+Sends via Microsoft Graph API (app-only OAuth, client credentials flow),
+using a Mail.Send application permission scoped to the support@ mailbox via
+an Exchange Application Access Policy. Configured entirely through
+environment variables. Until GRAPH_CLIENT_ID/GRAPH_CLIENT_SECRET/
+GRAPH_TENANT_ID are set, send_email() safely no-ops (logs and returns False)
+so ticket actions never fail because email isn't wired up yet.
+"""
 
 import os
-from flask import Blueprint, request, jsonify
-from database import get_db, sla_status, log_action
+import time
+import html
+import requests
 
-system_bp = Blueprint("system", __name__)
+GRAPH_TENANT_ID     = os.environ.get("GRAPH_TENANT_ID")
+GRAPH_CLIENT_ID     = os.environ.get("GRAPH_CLIENT_ID")
+GRAPH_CLIENT_SECRET = os.environ.get("GRAPH_CLIENT_SECRET")
+GRAPH_SENDER        = os.environ.get("GRAPH_SENDER", "support@tia-solutions.co.za")
+SMTP_FROM_NAME      = os.environ.get("SMTP_FROM_NAME", "TIA Solutions Support")
+SUPPORT_PHONE       = "010 025 2503"
 
-CRON_SECRET = os.environ.get("CRON_SECRET")
-REMINDER_COOLDOWN_HOURS = 4  # don't re-notify the same ticket more than once per this window
-OPEN_STATUSES = ("open", "in_progress", "pending")
+_TOKEN_URL = "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
+_GRAPH_SEND_URL = "https://graph.microsoft.com/v1.0/users/{sender}/sendMail"
+
+# In-process token cache — avoids requesting a new token on every email.
+# Each gunicorn worker keeps its own cache, which is fine; tokens are cheap to fetch.
+_token_cache = {"access_token": None, "expires_at": 0}
 
 
-@system_bp.route("/check-sla", methods=["POST"])
-def check_sla():
-    # Shared-secret auth — this endpoint has no user session, it's called by a cron trigger.
-    auth = request.headers.get("Authorization", "")
-    if not CRON_SECRET or auth != f"Bearer {CRON_SECRET}":
-        return jsonify(error="Unauthorized."), 401
+def is_configured():
+    return bool(GRAPH_TENANT_ID and GRAPH_CLIENT_ID and GRAPH_CLIENT_SECRET)
 
-    db  = get_db()
-    cur = db.cursor()
-    cur.execute(
-        f"""SELECT * FROM tickets
-            WHERE status IN ({','.join(['%s']*len(OPEN_STATUSES))})""",
-        OPEN_STATUSES
-    )
-    tickets = cur.fetchall()
 
-    notified = []
-    for t in tickets:
-        status = sla_status(t)
-        if not (status["sla_response_breached"] or status["sla_resolution_breached"]):
-            continue
+def _get_access_token():
+    """Return a cached app-only access token, refreshing it if expired or near-expiry."""
+    if _token_cache["access_token"] and time.time() < _token_cache["expires_at"] - 60:
+        return _token_cache["access_token"]
 
-        # Throttle: skip if we already reminded within the cooldown window
-        if t["last_sla_reminder_at"]:
-            cur.execute(
-                "SELECT NOW() - %s < (%s || ' hours')::interval as recent",
-                (t["last_sla_reminder_at"], REMINDER_COOLDOWN_HOURS)
-            )
-            if cur.fetchone()["recent"]:
-                continue
+    url = _TOKEN_URL.format(tenant=GRAPH_TENANT_ID)
+    resp = requests.post(url, data={
+        "client_id":     GRAPH_CLIENT_ID,
+        "client_secret": GRAPH_CLIENT_SECRET,
+        "scope":         "https://graph.microsoft.com/.default",
+        "grant_type":    "client_credentials",
+    }, timeout=15)
+    resp.raise_for_status()
+    data = resp.json()
 
-        breach_kind = []
-        if status["sla_response_breached"]:   breach_kind.append("first response")
-        if status["sla_resolution_breached"]: breach_kind.append("resolution")
-        breach_text = " and ".join(breach_kind)
+    _token_cache["access_token"] = data["access_token"]
+    _token_cache["expires_at"]   = time.time() + int(data.get("expires_in", 3600))
+    return _token_cache["access_token"]
 
-        message = f"SLA breach ({breach_text}) on {t['ticket_no']}: {t['title']}"
 
-        # Recipient: assigned technician, or every staff member if unassigned
-        if t["assigned_to"]:
-            recipients = [t["assigned_to"]]
-        else:
-            cur.execute("SELECT id FROM users WHERE role IN ('admin','agent','technician')")
-            recipients = [r["id"] for r in cur.fetchall()]
+def send_email(to_email, to_name, subject, html_body):
+    """Send an HTML email via Graph. Never raises — a failed/unconfigured send
+    must never break the ticket action that triggered it."""
+    if not is_configured():
+        print(f"[mailer] Graph API not configured — skipping email to {to_email}: {subject}")
+        return False
+    try:
+        token = _get_access_token()
+        payload = {
+            "message": {
+                "subject": subject,
+                "body": {"contentType": "HTML", "content": html_body},
+                "toRecipients": [
+                    {"emailAddress": {"address": to_email, "name": to_name or to_email}}
+                ],
+                "from": {"emailAddress": {"address": GRAPH_SENDER, "name": SMTP_FROM_NAME}},
+            },
+            "saveToSentItems": "true",
+        }
+        url = _GRAPH_SEND_URL.format(sender=GRAPH_SENDER)
+        resp = requests.post(
+            url,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json=payload,
+            timeout=15,
+        )
+        if resp.status_code == 202:
+            return True
+        print(f"[mailer] Graph sendMail failed ({resp.status_code}) for {to_email}: {resp.text[:500]}")
+        return False
+    except Exception as e:
+        print(f"[mailer] Failed to send email to {to_email}: {e}")
+        return False
 
-        for uid in recipients:
-            cur.execute(
-                "INSERT INTO notifications (user_id, message, link) VALUES (%s,%s,%s)",
-                (uid, message, f"/ticket/{t['id']}")
-            )
 
-        log_action(cur, t["id"], None, "sla_reminder", breach_text)
-        cur.execute("UPDATE tickets SET last_sla_reminder_at = NOW() WHERE id=%s", (t["id"],))
-        notified.append(t["ticket_no"])
+def _wrap(inner_html):
+    return f"""<!DOCTYPE html>
+<html>
+<body style="font-family: Arial, sans-serif; color:#333333; line-height:1.6; max-width:600px; margin:0 auto; padding:16px;">
+{inner_html}
+</body>
+</html>"""
 
-    db.commit()
-    cur.close()
-    db.close()
-    return jsonify(checked=len(tickets), reminders_sent=len(notified), tickets=notified)
+
+def render_ack_email(client_name, ticket_no, title, date_received, technician_name=None):
+    client_name = html.escape(str(client_name))
+    title       = html.escape(str(title))
+    technician  = html.escape(str(technician_name)) if technician_name else "To be assigned"
+
+    inner = f"""
+<p>Dear {client_name},</p>
+
+<p>Thank you for reaching out to Technology Infrastructure Architects. This email serves as
+confirmation that we have received your request regarding:</p>
+
+<p><strong>Request:</strong> {title} (Ticket {html.escape(ticket_no)})<br>
+<strong>Date Received:</strong> {html.escape(date_received)}</p>
+
+<p>Our team is reviewing the details, and we will keep you updated on the progress. Should we
+require any additional information, we will contact you directly.</p>
+
+<p>If you have further questions or need urgent assistance, please don't hesitate to contact us
+at <a href="mailto:support@tia-solutions.co.za">support@tia-solutions.co.za</a> or {SUPPORT_PHONE}.</p>
+
+<p>We appreciate your trust in us to support your business needs.</p>
+
+<p><strong>Request allocated to:</strong> {technician}</p>
+"""
+    return _wrap(inner)
+
+
+def render_resolved_email(client_name, ticket_no, title, date_logged, date_resolved, technician_name=None):
+    client_name = html.escape(str(client_name))
+    title       = html.escape(str(title))
+    technician  = html.escape(str(technician_name)) if technician_name else "TIA Support Team"
+
+    inner = f"""
+<p>Dear {client_name},</p>
+
+<p>We are pleased to inform you that your request has been successfully resolved. Please find
+the details below:</p>
+
+<p><strong>Request:</strong> {title} (Ticket {html.escape(ticket_no)})<br>
+<strong>Date Logged:</strong> {html.escape(date_logged)}<br>
+<strong>Date Resolved:</strong> {html.escape(date_resolved)}</p>
+
+<p>Our team has completed the necessary steps to address this matter, and everything is now
+functioning as expected.</p>
+
+<p>If you experience any further issues or require additional assistance, please do not
+hesitate to reach out to us at <a href="mailto:support@tia-solutions.co.za">support@tia-solutions.co.za</a>
+or {SUPPORT_PHONE}.</p>
+
+<p>Thank you for giving us the opportunity to support your business. We value your partnership
+with Technology Infrastructure Architects.</p>
+
+<p><strong>Request completed by:</strong> {technician}</p>
+"""
+    return _wrap(inner)
+
+
+def render_sla_reminder_email(technician_name, ticket_no, title, request_level, breach_text, ticket_link=None):
+    technician_name = html.escape(str(technician_name))
+    title           = html.escape(str(title))
+    breach_text     = html.escape(str(breach_text))
+    link_line       = f'<p><a href="{html.escape(ticket_link)}">View ticket {html.escape(ticket_no)}</a></p>' if ticket_link else ""
+
+    inner = f"""
+<p>Hi {technician_name},</p>
+
+<p>This is an automated reminder that the following ticket has breached its SLA target
+({breach_text}):</p>
+
+<p><strong>Ticket:</strong> {html.escape(ticket_no)}<br>
+<strong>Request:</strong> {title}<br>
+<strong>Request Level:</strong> {html.escape(str(request_level))}</p>
+
+{link_line}
+
+<p>Please review and action this ticket as soon as possible.</p>
+
+<p>— TIA Ticketing System</p>
+"""
+    return _wrap(inner)
+
+
+def render_assignment_email(technician_name, ticket_no, title, request_level, priority, ticket_link=None):
+    technician_name = html.escape(str(technician_name))
+    title           = html.escape(str(title))
+    link_line       = f'<p><a href="{html.escape(ticket_link)}">View ticket {html.escape(ticket_no)}</a></p>' if ticket_link else ""
+
+    inner = f"""
+<p>Hi {technician_name},</p>
+
+<p>You have been assigned a new support ticket:</p>
+
+<p><strong>Ticket:</strong> {html.escape(ticket_no)}<br>
+<strong>Request:</strong> {title}<br>
+<strong>Request Level:</strong> {html.escape(str(request_level))}<br>
+<strong>Priority:</strong> {html.escape(str(priority))}</p>
+
+{link_line}
+
+<p>Please review and action this ticket at your earliest convenience.</p>
+
+<p>— TIA Ticketing System</p>
+"""
+    return _wrap(inner)
