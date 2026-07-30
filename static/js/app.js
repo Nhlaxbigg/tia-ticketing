@@ -15,6 +15,7 @@ let clientList = [];
 
 /* ── Helpers ──────────────────────────────────────────────────────────────── */
 const token = () => localStorage.getItem('tia_token');
+let sessionExpiredHandled = false;
 
 async function apiFetch(path, options = {}) {
   const res = await fetch(API + path, {
@@ -25,8 +26,24 @@ async function apiFetch(path, options = {}) {
     ...options,
   });
   const data = await res.json().catch(() => ({}));
+  if ((res.status === 401 || res.status === 422) && token()) {
+    handleSessionExpired();
+    throw new Error('Session expired');
+  }
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
+}
+
+function handleSessionExpired() {
+  if (sessionExpiredHandled) return; // avoid firing repeatedly from concurrent/polled requests
+  sessionExpiredHandled = true;
+  stopSyncPolling();
+  localStorage.removeItem('tia_token');
+  currentUser = null;
+  hide('app-shell');
+  show('auth-screen');
+  showLogin();
+  showError('login-error', 'Your session expired — please log in again.');
 }
 
 function show(id)   { document.getElementById(id)?.classList.remove('hidden'); }
@@ -102,6 +119,7 @@ async function doLogin() {
     });
     localStorage.setItem('tia_token', data.token);
     currentUser = data.user;
+    sessionExpiredHandled = false;
     bootApp();
   } catch(e) { showError('login-error', e.message); }
 }
@@ -201,11 +219,25 @@ function navigate(view, id = null) {
   if (view === 'notifications')  loadNotifications();
 }
 
+function isUserMidEdit() {
+  const modalIds = ['edit-modal', 'user-modal', 'create-user-modal', 'create-client-modal', 'add-contact-modal'];
+  if (modalIds.some(id => { const m = el(id); return m && !m.classList.contains('hidden'); })) return true;
+
+  const nc = el('new-comment');
+  if (nc && nc.value.trim().length > 0) return true;
+
+  const active = document.activeElement;
+  if (active && (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT')) return true;
+
+  return false;
+}
+
 function startSyncPolling() {
   stopSyncPolling();
   syncTimer = setInterval(() => {
     if (!currentUser) return;
     if (!el('app-shell') || el('app-shell').classList.contains('hidden')) return;
+    if (isUserMidEdit()) return; // don't blow away in-progress typing or an open modal
     if (!el('view-dashboard')?.classList.contains('hidden')) {
       loadDashboard();
     } else if (!el('view-tickets')?.classList.contains('hidden')) {
