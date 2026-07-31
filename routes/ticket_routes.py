@@ -107,6 +107,18 @@ def create_ticket():
             return jsonify(error="on_behalf_of must be an existing client contact."), 400
         created_by = target["id"]
 
+    # Staff can assign the ticket to a technician/agent/admin right at creation
+    assigned_to = None
+    assignee = None
+    if data.get("assigned_to") and requester["role"] in STAFF_ROLES:
+        cur.execute("SELECT id, name, email, role FROM users WHERE id=%s", (data["assigned_to"],))
+        candidate = cur.fetchone()
+        if not candidate or candidate["role"] not in STAFF_ROLES:
+            cur.close(); db.close()
+            return jsonify(error="assigned_to must be an existing agent, technician, or admin."), 400
+        assigned_to = candidate["id"]
+        assignee = candidate
+
     title         = (data.get("title")         or "").strip()
     description   = (data.get("description")   or "").strip()
     category      = (data.get("category")      or "general").strip().lower()
@@ -127,23 +139,25 @@ def create_ticket():
     cur.execute(
         """INSERT INTO tickets
                (ticket_no, title, description, category, priority,
-                request_level, support_type, status, created_by,
+                request_level, support_type, status, created_by, assigned_to,
                 sla_response_due, sla_resolution_due)
-           VALUES (%s,%s,%s,%s,%s,%s,%s,'open',%s,
+           VALUES (%s,%s,%s,%s,%s,%s,%s,'open',%s,%s,
                    NOW() + (%s || ' hours')::interval,
                    NOW() + (%s || ' hours')::interval)
            RETURNING id""",
         (ticket_no, title, description, category, priority,
-         request_level, support_type, created_by, response_h, resolution_h)
+         request_level, support_type, created_by, assigned_to, response_h, resolution_h)
     )
     ticket_id = cur.fetchone()["id"]
     log_note = f"Priority: {priority}, Category: {category}"
     if created_by != uid:
         log_note += f" (logged on behalf of contact #{created_by})"
+    if assigned_to:
+        log_note += f", assigned to #{assigned_to} at creation"
     log_action(cur, ticket_id, uid, "created", log_note)
     db.commit()
 
-    # Notify all admins/agents/technicians
+    # Notify all admins/agents/technicians of the new ticket
     cur.execute("SELECT id FROM users WHERE role IN ('admin','agent','technician')")
     agents = cur.fetchall()
     for a in agents:
@@ -153,9 +167,30 @@ def create_ticket():
         )
     db.commit()
 
+    # If assigned at creation and it's not a self-assignment, send the assignment email/notification too
+    if assignee and assigned_to != uid:
+        cur.execute(
+            "INSERT INTO notifications (user_id, message, link) VALUES (%s,%s,%s)",
+            (assigned_to, f"You have been assigned ticket {ticket_no}", f"/ticket/{ticket_id}")
+        )
+        db.commit()
+        if assignee["email"]:
+            ticket_link = f"{APP_BASE_URL}/ticket/{ticket_id}" if APP_BASE_URL else None
+            assign_html = render_assignment_email(
+                technician_name=assignee["name"],
+                ticket_no=ticket_no,
+                title=title,
+                request_level=request_level,
+                priority=priority,
+                ticket_link=ticket_link,
+            )
+            send_email(assignee["email"], assignee["name"], f"Ticket Assigned – {ticket_no}", assign_html)
+
     cur.execute(
-        """SELECT t.*, u1.name as creator_name, u1.email as creator_email, u1.role as creator_role
+        """SELECT t.*, u1.name as creator_name, u1.email as creator_email, u1.role as creator_role,
+                  u2.name as assignee_name
            FROM tickets t JOIN users u1 ON t.created_by=u1.id
+           LEFT JOIN users u2 ON t.assigned_to=u2.id
            WHERE t.id=%s""", (ticket_id,)
     )
     ticket = cur.fetchone()
@@ -168,6 +203,7 @@ def create_ticket():
             ticket_no=ticket["ticket_no"],
             title=ticket["title"],
             date_received=ticket["created_at"].strftime("%d %B %Y %H:%M"),
+            technician_name=ticket["assignee_name"],
         )
         send_email(
             ticket["creator_email"], ticket["creator_name"],
