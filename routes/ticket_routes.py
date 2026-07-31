@@ -188,7 +188,7 @@ def create_ticket():
 
     cur.execute(
         """SELECT t.*, u1.name as creator_name, u1.email as creator_email, u1.role as creator_role,
-                  u2.name as assignee_name
+                  u2.name as assignee_name, u2.email as assignee_email
            FROM tickets t JOIN users u1 ON t.created_by=u1.id
            LEFT JOIN users u2 ON t.assigned_to=u2.id
            WHERE t.id=%s""", (ticket_id,)
@@ -208,7 +208,9 @@ def create_ticket():
         send_email(
             ticket["creator_email"], ticket["creator_name"],
             f"Acknowledgement of Your Request – {ticket['creator_name']}",
-            html_body
+            html_body,
+            cc_email=ticket["assignee_email"],
+            cc_name=ticket["assignee_name"],
         )
 
     return jsonify(_with_sla(ticket)), 201
@@ -384,7 +386,7 @@ def update_ticket(ticket_id):
 
     cur.execute(
         """SELECT t.*, u1.name as creator_name, u1.email as creator_email, u1.role as creator_role,
-                  u2.name as assignee_name
+                  u2.name as assignee_name, u2.email as assignee_email
            FROM tickets t JOIN users u1 ON t.created_by=u1.id
            LEFT JOIN users u2 ON t.assigned_to=u2.id
            WHERE t.id=%s""", (ticket_id,)
@@ -405,7 +407,9 @@ def update_ticket(ticket_id):
         send_email(
             updated["creator_email"], updated["creator_name"],
             f"Your Request Has Been Resolved – {updated['ticket_no']}",
-            html_body
+            html_body,
+            cc_email=updated["assignee_email"],
+            cc_name=updated["assignee_name"],
         )
 
     return jsonify(_with_sla(updated))
