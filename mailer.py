@@ -53,9 +53,10 @@ def _get_access_token():
     return _token_cache["access_token"]
 
 
-def send_email(to_email, to_name, subject, html_body):
-    """Send an HTML email via Graph. Never raises — a failed/unconfigured send
-    must never break the ticket action that triggered it."""
+def send_email(to_email, to_name, subject, html_body, cc_email=None, cc_name=None):
+    """Send an HTML email via Graph, optionally CC'ing one address (e.g. the
+    assigned technician on client-facing emails). Never raises — a failed/
+    unconfigured send must never break the ticket action that triggered it."""
     if not is_configured():
         print(f"[mailer] Graph API not configured — skipping email to {to_email}: {subject}")
         return False
@@ -72,6 +73,10 @@ def send_email(to_email, to_name, subject, html_body):
             },
             "saveToSentItems": "true",
         }
+        if cc_email:
+            payload["message"]["ccRecipients"] = [
+                {"emailAddress": {"address": cc_email, "name": cc_name or cc_email}}
+            ]
         url = _GRAPH_SEND_URL.format(sender=GRAPH_SENDER)
         resp = requests.post(
             url,
