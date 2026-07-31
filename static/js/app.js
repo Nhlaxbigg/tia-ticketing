@@ -402,8 +402,11 @@ function resetNewTicket() {
   if (currentUser.role !== 'client') {
     show('nt-behalf-wrap');
     populateNewTicketClients();
+    show('nt-assign-wrap');
+    populateNewTicketAssignees();
   } else {
     hide('nt-behalf-wrap');
+    hide('nt-assign-wrap');
   }
 }
 
@@ -418,6 +421,18 @@ async function populateNewTicketClients() {
     sel.innerHTML = '<option value="">— Log as myself —</option>' +
       clientList.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
     el('nt-contact').innerHTML = '<option value="">— Select a client first —</option>';
+  } catch(_) {}
+}
+
+async function populateNewTicketAssignees() {
+  const sel = el('nt-assigned-to');
+  if (!sel) return;
+  try {
+    if (agentList.length === 0) {
+      await loadAgents();
+    }
+    sel.innerHTML = '<option value="">— Unassigned —</option>' +
+      agentList.map(a => `<option value="${a.id}">${esc(a.name)} (${a.role})</option>`).join('');
   } catch(_) {}
 }
 
@@ -448,6 +463,7 @@ async function submitTicket() {
     return showError('new-ticket-error', 'Title and description are required.');
   }
   const onBehalfOf = currentUser.role !== 'client' ? val('nt-contact') : '';
+  const assignedTo = currentUser.role !== 'client' ? val('nt-assigned-to') : '';
   try {
     const t = await apiFetch('/tickets', {
       method: 'POST',
@@ -458,6 +474,7 @@ async function submitTicket() {
         request_level: val('nt-request-level'),
         support_type:  val('nt-support-type'),
         ...(onBehalfOf ? { on_behalf_of: parseInt(onBehalfOf) } : {}),
+        ...(assignedTo ? { assigned_to: parseInt(assignedTo) } : {}),
       }),
     });
     navigate('ticket-detail', t.id);
