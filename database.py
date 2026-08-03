@@ -4,39 +4,84 @@ Database initialisation and helper utilities (PostgreSQL / Neon).
 """
 
 import os
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 import psycopg2
 import psycopg2.extras
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
-# TIA-Solutions SLA framework — targets in hours, keyed by request level (1-5).
-# Levels 1-3 use one target regardless of when the ticket was logged (the SLA
-# document gives only one figure for those). Levels 4-5 differ based on
-# whether the ticket was logged during office hours or after hours.
+# TIA-Solutions SLA framework — targets in business hours, keyed by request level (1-5).
+# The SLA clock only runs Mon-Fri 08:00-16:00 SAST; it's paused nights/weekends,
+# so a ticket logged after hours simply starts counting at the next business open.
 SLA_TARGETS = {
-    5: {"response_office": 2,  "response_after": 4,  "resolution_office": 4,  "resolution_after": 6},   # Very High
-    4: {"response_office": 4,  "response_after": 8,  "resolution_office": 8,  "resolution_after": 16},  # High
-    3: {"response_office": 4,  "response_after": 4,  "resolution_office": 48, "resolution_after": 48},  # Medium/Normal
-    2: {"response_office": 8,  "response_after": 8,  "resolution_office": 24, "resolution_after": 24},  # Low
-    1: {"response_office": 12, "response_after": 12, "resolution_office": 48, "resolution_after": 48},  # Request
+    5: {"response": 2,  "resolution": 4},   # Very High
+    4: {"response": 4,  "resolution": 8},   # High
+    3: {"response": 4,  "resolution": 48},  # Medium/Normal
+    2: {"response": 8,  "resolution": 24},  # Low
+    1: {"response": 12, "resolution": 48},  # Request
 }
 
-OFFICE_TZ_NAME = "Africa/Johannesburg"
-OFFICE_DAYS    = {0, 1, 2, 3, 4}  # Monday=0 .. Friday=4
+OFFICE_TZ_NAME    = "Africa/Johannesburg"
+OFFICE_DAYS       = {0, 1, 2, 3, 4}  # Monday=0 .. Friday=4
 OFFICE_START_HOUR = 8
 OFFICE_END_HOUR   = 16
 
 
 def is_office_hours(dt=None):
     """True if the given (or current) moment falls within Mon-Fri 08:00-16:00 SAST."""
-    from datetime import datetime, timezone
-    from zoneinfo import ZoneInfo
     tz = ZoneInfo(OFFICE_TZ_NAME)
     if dt is None:
         local = datetime.now(tz)
     else:
         local = dt.astimezone(tz) if dt.tzinfo else dt.replace(tzinfo=timezone.utc).astimezone(tz)
     return local.weekday() in OFFICE_DAYS and OFFICE_START_HOUR <= local.hour < OFFICE_END_HOUR
+
+
+def _next_business_start(local_dt):
+    """Given a tz-aware local datetime, return the next moment inside business
+    hours — itself, if already inside; otherwise the next 08:00 on a business day."""
+    while True:
+        if local_dt.weekday() in OFFICE_DAYS and OFFICE_START_HOUR <= local_dt.hour < OFFICE_END_HOUR:
+            return local_dt
+        if local_dt.weekday() in OFFICE_DAYS and local_dt.hour < OFFICE_START_HOUR:
+            return local_dt.replace(hour=OFFICE_START_HOUR, minute=0, second=0, microsecond=0)
+        # After hours on a business day, or a weekend day — roll to the start of the next day and retry.
+        local_dt = (local_dt + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def add_business_hours(start_utc, hours):
+    """Add `hours` of business time (Mon-Fri 08:00-16:00 SAST) to start_utc.
+    Nights and weekends are skipped entirely — the clock only runs during
+    business hours. Returns an aware UTC datetime."""
+    tz = ZoneInfo(OFFICE_TZ_NAME)
+    remaining = timedelta(hours=hours)
+    current = _next_business_start(start_utc.astimezone(tz))
+
+    while remaining > timedelta(0):
+        day_end = current.replace(hour=OFFICE_END_HOUR, minute=0, second=0, microsecond=0)
+        available_today = day_end - current
+        if remaining <= available_today:
+            current = current + remaining
+            remaining = timedelta(0)
+        else:
+            remaining -= available_today
+            current = _next_business_start(day_end + timedelta(minutes=1))
+
+    return current.astimezone(timezone.utc)
+
+
+def compute_sla_due_dates(request_level, created_at_utc):
+    """Return (response_due_utc, resolution_due_utc) — both business-hours-aware,
+    aware UTC datetimes — based on the TIA SLA framework."""
+    try:
+        level_num = int(str(request_level).strip().split()[-1])
+    except (ValueError, IndexError):
+        level_num = 3
+    targets = SLA_TARGETS.get(level_num, SLA_TARGETS[3])
+    response_due   = add_business_hours(created_at_utc, targets["response"])
+    resolution_due = add_business_hours(created_at_utc, targets["resolution"])
+    return response_due, resolution_due
 
 
 def get_db():
@@ -191,20 +236,6 @@ def next_ticket_no():
     c.close()
     conn.close()
     return f"TIA-{num:05d}"
-
-
-def sla_due_dates(request_level):
-    """Return (response_hours, resolution_hours) for a 'Level N' string, based on
-    whether the ticket is being logged during office hours or after hours."""
-    try:
-        level_num = int(str(request_level).strip().split()[-1])
-    except (ValueError, IndexError):
-        level_num = 3
-    targets = SLA_TARGETS.get(level_num, SLA_TARGETS[3])
-    office = is_office_hours()
-    response_h   = targets["response_office"]   if office else targets["response_after"]
-    resolution_h = targets["resolution_office"]  if office else targets["resolution_after"]
-    return response_h, resolution_h
 
 
 def log_action(cur, ticket_id, user_id, action, details=""):
