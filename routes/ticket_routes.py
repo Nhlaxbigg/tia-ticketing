@@ -1,9 +1,10 @@
 """Ticket routes — CRUD + assignment + status change + SLA + audit log"""
 
 import os
+from datetime import datetime, timezone
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from database import get_db, next_ticket_no, sla_due_dates, sla_status, log_action
+from database import get_db, next_ticket_no, compute_sla_due_dates, sla_status, log_action
 from mailer import send_email, render_ack_email, render_resolved_email, render_assignment_email
 
 ticket_bp = Blueprint("tickets", __name__)
@@ -133,20 +134,20 @@ def create_ticket():
     if request_level not in REQ_LEVELS:    request_level = "Level 1"
     if support_type  not in SUPPORT_TYPES: support_type  = "remote"
 
-    response_h, resolution_h = sla_due_dates(request_level)
+    now_utc = datetime.now(timezone.utc)
+    response_due, resolution_due = compute_sla_due_dates(request_level, now_utc)
 
     ticket_no = next_ticket_no()
     cur.execute(
         """INSERT INTO tickets
                (ticket_no, title, description, category, priority,
                 request_level, support_type, status, created_by, assigned_to,
-                sla_response_due, sla_resolution_due)
-           VALUES (%s,%s,%s,%s,%s,%s,%s,'open',%s,%s,
-                   NOW() + (%s || ' hours')::interval,
-                   NOW() + (%s || ' hours')::interval)
+                created_at, sla_response_due, sla_resolution_due)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,'open',%s,%s,%s,%s,%s)
            RETURNING id""",
         (ticket_no, title, description, category, priority,
-         request_level, support_type, created_by, assigned_to, response_h, resolution_h)
+         request_level, support_type, created_by, assigned_to,
+         now_utc, response_due, resolution_due)
     )
     ticket_id = cur.fetchone()["id"]
     log_note = f"Priority: {priority}, Category: {category}"
