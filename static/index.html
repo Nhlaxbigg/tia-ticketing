@@ -4,6 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>TIA-Solutions — Support Portal</title>
+  <link rel="icon" type="image/x-icon" href="/favicon/favicon.ico" />
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon/favicon-16x16.png" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon/favicon-32x32.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/favicon/favicon-192x192.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/favicon/apple-touch-icon.png" />
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
   <script>
@@ -234,20 +239,57 @@
           <div class="bg-white rounded-xl border border-gray-200 p-6">
             <div id="new-ticket-error" class="hidden mb-4 p-3 bg-red-50 text-red-700 rounded-lg text-sm"></div>
             <div class="space-y-4">
-              <div id="nt-behalf-wrap" class="hidden grid grid-cols-2 gap-4 p-3 bg-violet-50 border border-violet-200 rounded-lg">
-                <div>
-                  <label class="block text-sm font-medium text-gray-700 mb-1">Client Company</label>
-                  <select id="nt-client" onchange="onNewTicketClientChange()"
-                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tia-500">
-                    <option value="">— Log as myself —</option>
-                  </select>
+              <div id="nt-behalf-wrap" class="hidden p-3 bg-violet-50 border border-violet-200 rounded-lg space-y-3">
+                <div class="grid grid-cols-2 gap-4">
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Client Company</label>
+                    <select id="nt-client" onchange="onNewTicketClientChange()"
+                      class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tia-500">
+                      <option value="">— Log as myself —</option>
+                      <option value="__new_client__">+ Add New Client…</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Contact</label>
+                    <select id="nt-contact" onchange="onNewTicketContactChange()"
+                      class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tia-500">
+                      <option value="">— Select a client first —</option>
+                    </select>
+                  </div>
                 </div>
-                <div>
-                  <label class="block text-sm font-medium text-gray-700 mb-1">Contact</label>
-                  <select id="nt-contact"
-                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tia-500">
-                    <option value="">— Select a client first —</option>
-                  </select>
+
+                <!-- Shown when "+ Add New Client" is chosen -->
+                <div id="nt-new-client-fields" class="hidden grid grid-cols-2 gap-3 pt-2 border-t border-violet-200">
+                  <div class="col-span-2">
+                    <label class="block text-xs font-medium text-gray-600 mb-1">New Company Name <span class="text-red-500">*</span></label>
+                    <input id="nt-new-client-name" type="text" placeholder="e.g. Acme Logistics"
+                      class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tia-500" />
+                  </div>
+                </div>
+
+                <!-- Shown when "+ Add New Client" or "+ Add New Contact" is chosen -->
+                <div id="nt-new-contact-fields" class="hidden grid grid-cols-2 gap-3 pt-2 border-t border-violet-200">
+                  <div class="col-span-2 text-xs font-medium text-gray-600">New Contact Details</div>
+                  <div>
+                    <label class="block text-xs font-medium text-gray-600 mb-1">Full Name <span class="text-red-500">*</span></label>
+                    <input id="nt-new-contact-name" type="text"
+                      class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tia-500" />
+                  </div>
+                  <div>
+                    <label class="block text-xs font-medium text-gray-600 mb-1">Email <span class="text-red-500">*</span></label>
+                    <input id="nt-new-contact-email" type="email"
+                      class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tia-500" />
+                  </div>
+                  <div>
+                    <label class="block text-xs font-medium text-gray-600 mb-1">Phone</label>
+                    <input id="nt-new-contact-phone" type="text"
+                      class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tia-500" />
+                  </div>
+                  <div>
+                    <label class="block text-xs font-medium text-gray-600 mb-1">Temporary Password <span class="text-red-500">*</span></label>
+                    <input id="nt-new-contact-password" type="text"
+                      class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tia-500" />
+                  </div>
                 </div>
               </div>
               <div>
