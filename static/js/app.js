@@ -395,9 +395,12 @@ function renderTicketTable(data) {
 /* ── New Ticket ───────────────────────────────────────────────────────────── */
 function resetNewTicket() {
   hideError('new-ticket-error');
-  ['nt-title','nt-description'].forEach(id => setVal(id,''));
+  ['nt-title','nt-description','nt-new-client-name','nt-new-contact-name',
+   'nt-new-contact-email','nt-new-contact-phone','nt-new-contact-password'].forEach(id => setVal(id,''));
   setVal('nt-category','it_support');
   setVal('nt-priority','medium');
+  hide('nt-new-client-fields');
+  hide('nt-new-contact-fields');
 
   if (currentUser.role !== 'client') {
     show('nt-behalf-wrap');
@@ -419,6 +422,7 @@ async function populateNewTicketClients() {
     const sel = el('nt-client');
     if (!sel) return;
     sel.innerHTML = '<option value="">— Log as myself —</option>' +
+      '<option value="__new_client__">+ Add New Client…</option>' +
       clientList.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
     el('nt-contact').innerHTML = '<option value="">— Select a client first —</option>';
   } catch(_) {}
@@ -439,19 +443,42 @@ async function populateNewTicketAssignees() {
 async function onNewTicketClientChange() {
   const clientId = val('nt-client');
   const sel = el('nt-contact');
-  if (!clientId) {
-    sel.innerHTML = '<option value="">— Select a client first —</option>';
+
+  if (clientId === '__new_client__') {
+    // Brand new company — no existing contacts possible, go straight to new-contact fields.
+    sel.innerHTML = '<option value="">— New contact below —</option>';
+    show('nt-new-client-fields');
+    show('nt-new-contact-fields');
     return;
   }
+  hide('nt-new-client-fields');
+
+  if (!clientId) {
+    sel.innerHTML = '<option value="">— Select a client first —</option>';
+    hide('nt-new-contact-fields');
+    return;
+  }
+
   sel.innerHTML = '<option value="">Loading…</option>';
   try {
     const client = await apiFetch(`/clients/${clientId}`);
     const contacts = client.contacts || [];
-    sel.innerHTML = contacts.length
-      ? contacts.map(c => `<option value="${c.id}">${esc(c.name)} (${esc(c.email)})</option>`).join('')
-      : '<option value="">No contacts for this client yet</option>';
+    sel.innerHTML =
+      '<option value="">— Select a contact —</option>' +
+      '<option value="__new_contact__">+ Add New Contact…</option>' +
+      contacts.map(c => `<option value="${c.id}">${esc(c.name)} (${esc(c.email)})</option>`).join('');
   } catch(e) {
     sel.innerHTML = '<option value="">Failed to load contacts</option>';
+  }
+  onNewTicketContactChange();
+}
+
+function onNewTicketContactChange() {
+  const contactVal = val('nt-contact');
+  if (contactVal === '__new_contact__') {
+    show('nt-new-contact-fields');
+  } else if (val('nt-client') !== '__new_client__') {
+    hide('nt-new-contact-fields');
   }
 }
 
@@ -462,9 +489,46 @@ async function submitTicket() {
   if (!title || !description) {
     return showError('new-ticket-error', 'Title and description are required.');
   }
-  const onBehalfOf = currentUser.role !== 'client' ? val('nt-contact') : '';
-  const assignedTo = currentUser.role !== 'client' ? val('nt-assigned-to') : '';
+
+  const isStaff       = currentUser.role !== 'client';
+  const clientChoice  = isStaff ? val('nt-client')  : '';
+  const contactChoice = isStaff ? val('nt-contact') : '';
+  const assignedTo    = isStaff ? val('nt-assigned-to') : '';
+
+  let onBehalfOf = contactChoice && contactChoice !== '__new_contact__' ? contactChoice : '';
+
   try {
+    // Step 1: create a brand new client company, if requested
+    let targetClientId = (clientChoice && clientChoice !== '__new_client__') ? clientChoice : null;
+    if (clientChoice === '__new_client__') {
+      const newClientName = val('nt-new-client-name');
+      if (!newClientName) return showError('new-ticket-error', 'New company name is required.');
+      const newClient = await apiFetch('/clients', {
+        method: 'POST',
+        body: JSON.stringify({ name: newClientName }),
+      });
+      targetClientId = newClient.id;
+      clientList = []; // force refresh elsewhere (Clients tab) next time it loads
+    }
+
+    // Step 2: create a new contact under that client, if requested
+    if (clientChoice === '__new_client__' || contactChoice === '__new_contact__') {
+      const ncName     = val('nt-new-contact-name');
+      const ncEmail    = val('nt-new-contact-email');
+      const ncPassword = val('nt-new-contact-password');
+      if (!ncName || !ncEmail || !ncPassword) {
+        return showError('new-ticket-error', 'New contact name, email, and password are required.');
+      }
+      const newContact = await apiFetch(`/clients/${targetClientId}/users`, {
+        method: 'POST',
+        body: JSON.stringify({
+          name: ncName, email: ncEmail,
+          phone: val('nt-new-contact-phone'), password: ncPassword,
+        }),
+      });
+      onBehalfOf = newContact.id;
+    }
+
     const t = await apiFetch('/tickets', {
       method: 'POST',
       body: JSON.stringify({
