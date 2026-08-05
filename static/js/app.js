@@ -10,9 +10,12 @@ let editingUserId = null;
 let ticketPage = 1;
 let agentList = [];
 let syncTimer = null;
+let currentClientId = null;
+let clientList = [];
 
 /* ── Helpers ──────────────────────────────────────────────────────────────── */
 const token = () => localStorage.getItem('tia_token');
+let sessionExpiredHandled = false;
 
 async function apiFetch(path, options = {}) {
   const res = await fetch(API + path, {
@@ -23,8 +26,24 @@ async function apiFetch(path, options = {}) {
     ...options,
   });
   const data = await res.json().catch(() => ({}));
+  if ((res.status === 401 || res.status === 422) && token()) {
+    handleSessionExpired();
+    throw new Error('Session expired');
+  }
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
+}
+
+function handleSessionExpired() {
+  if (sessionExpiredHandled) return; // avoid firing repeatedly from concurrent/polled requests
+  sessionExpiredHandled = true;
+  stopSyncPolling();
+  localStorage.removeItem('tia_token');
+  currentUser = null;
+  hide('app-shell');
+  show('auth-screen');
+  showLogin();
+  showError('login-error', 'Your session expired — please log in again.');
 }
 
 function show(id)   { document.getElementById(id)?.classList.remove('hidden'); }
@@ -68,6 +87,25 @@ function supportTypeLabel(s) {
   return m[s] || s || '—';
 }
 
+function slaBadge(t) {
+  // Resolved/closed tickets: show whether resolution SLA was ultimately met, not live countdown
+  const closed = t.status === 'resolved' || t.status === 'closed';
+  if (t.sla_resolution_breached) {
+    return `<span class="badge" style="background:#fee2e2;color:#b91c1c;">
+      <i class="fa-solid fa-triangle-exclamation mr-1"></i>SLA Breached</span>`;
+  }
+  if (t.sla_response_breached) {
+    return `<span class="badge" style="background:#fef3c7;color:#92400e;">
+      <i class="fa-solid fa-clock mr-1"></i>Response Overdue</span>`;
+  }
+  if (closed) {
+    return `<span class="badge" style="background:#dcfce7;color:#166534;">
+      <i class="fa-solid fa-check mr-1"></i>Met SLA</span>`;
+  }
+  return `<span class="badge" style="background:#e0e7ff;color:#3730a3;">
+    <i class="fa-solid fa-hourglass-half mr-1"></i>On Track</span>`;
+}
+
 /* ── Auth ─────────────────────────────────────────────────────────────────── */
 function showLogin()    { hide('register-form'); show('login-form'); hideError('login-error'); hideError('reg-error'); hideError('reg-success'); }
 function showRegister() { hide('login-form'); show('register-form'); }
@@ -81,6 +119,7 @@ async function doLogin() {
     });
     localStorage.setItem('tia_token', data.token);
     currentUser = data.user;
+    sessionExpiredHandled = false;
     bootApp();
   } catch(e) { showError('login-error', e.message); }
 }
@@ -125,6 +164,7 @@ async function bootApp() {
 
   // Show staff-only nav items
   if (currentUser.role === 'admin' || currentUser.role === 'technician') { show('nav-users'); }
+  if (currentUser.role !== 'client') { show('nav-clients'); }
 
   // Load agents/technicians BEFORE navigating so the assign dropdown is ready
   if (currentUser.role !== 'client') {
@@ -148,7 +188,7 @@ async function loadAgents() {
 }
 
 /* ── Navigation ───────────────────────────────────────────────────────────── */
-const VIEWS = ['dashboard','tickets','new-ticket','ticket-detail','users','notifications'];
+const VIEWS = ['dashboard','tickets','new-ticket','ticket-detail','users','clients','notifications'];
 
 function navigate(view, id = null) {
   VIEWS.forEach(v => hide(`view-${v}`));
@@ -160,6 +200,7 @@ function navigate(view, id = null) {
     'new-ticket':    'Submit New Ticket',
     'ticket-detail': 'Ticket Detail',
     'users':         'User Management',
+    'clients':       'Clients',
     'notifications': 'Notifications',
   };
   setText('page-title', titles[view] || '');
@@ -174,7 +215,21 @@ function navigate(view, id = null) {
   if (view === 'new-ticket')     resetNewTicket();
   if (view === 'ticket-detail')  loadTicketDetail(id || currentTicketId);
   if (view === 'users')          loadUsers();
+  if (view === 'clients')        { closeClientDetail(); loadClients(); }
   if (view === 'notifications')  loadNotifications();
+}
+
+function isUserMidEdit() {
+  const modalIds = ['edit-modal', 'user-modal', 'create-user-modal', 'create-client-modal', 'add-contact-modal'];
+  if (modalIds.some(id => { const m = el(id); return m && !m.classList.contains('hidden'); })) return true;
+
+  const nc = el('new-comment');
+  if (nc && nc.value.trim().length > 0) return true;
+
+  const active = document.activeElement;
+  if (active && (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT')) return true;
+
+  return false;
 }
 
 function startSyncPolling() {
@@ -182,6 +237,7 @@ function startSyncPolling() {
   syncTimer = setInterval(() => {
     if (!currentUser) return;
     if (!el('app-shell') || el('app-shell').classList.contains('hidden')) return;
+    if (isUserMidEdit()) return; // don't blow away in-progress typing or an open modal
     if (!el('view-dashboard')?.classList.contains('hidden')) {
       loadDashboard();
     } else if (!el('view-tickets')?.classList.contains('hidden')) {
@@ -193,7 +249,7 @@ function startSyncPolling() {
     } else if (!el('view-notifications')?.classList.contains('hidden')) {
       loadNotifications();
     }
-  }, 15000);
+  }, 90000); // 90s — was 15s
 }
 
 function stopSyncPolling() {
@@ -216,7 +272,8 @@ function renderDashboard(d) {
     { label:'Open',        val: byStatus.open || 0,         icon:'fa-folder-open',     color:'text-blue-600' },
     { label:'In Progress', val: byStatus.in_progress || 0,  icon:'fa-gears',           color:'text-yellow-600' },
     { label:'Resolved',    val: byStatus.resolved || 0,     icon:'fa-circle-check',    color:'text-green-600' },
-    { label:'Critical',    val: (d.by_priority||{}).critical||0, icon:'fa-triangle-exclamation', color:'text-red-600' },
+    { label:'SLA Breached', val: d.sla_resolution_breached || 0, icon:'fa-triangle-exclamation', color:'text-red-600' },
+    { label:'Response Overdue', val: d.sla_response_breached || 0, icon:'fa-clock', color:'text-amber-600' },
     ...(d.total_users != null ? [{ label:'Users', val: d.total_users, icon:'fa-users', color:'text-purple-600' }] : []),
   ];
 
@@ -239,7 +296,7 @@ function renderDashboard(d) {
     </tr>`).join('') || '<tr><td colspan="5" class="px-4 py-8 text-center text-gray-400">No tickets yet</td></tr>';
 
   return `
-    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">${cards}</div>
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-4 mb-8">${cards}</div>
     <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
       <div class="px-5 py-3 border-b border-gray-200 font-medium text-gray-700 text-sm">Recent Tickets</div>
       <table class="w-full text-left">
@@ -290,23 +347,25 @@ function renderTicketTable(data) {
         <div class="text-xs text-gray-400 mt-0.5">${esc(t.creator_name || '')}</div>
       </td>
       <td class="px-4 py-3">${badge(t.status, t.status)}</td>
+      <td class="px-4 py-3 whitespace-nowrap">${slaBadge(t)}</td>
       <td class="px-4 py-3 text-xs text-gray-600">${supportTypeLabel(t.support_type)}</td>
       <td class="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">${fmt(t.created_at)}</td>
       <td class="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">${t.start_time ? fmt(t.start_time) : '—'}</td>
       <td class="px-4 py-3 text-xs text-gray-600 font-medium">${esc(t.hours_worked || '—')}</td>
       <td class="px-4 py-3 text-xs text-gray-500">${esc(t.assignee_name || '—')}</td>
       <td class="px-4 py-3 text-xs text-gray-500">${esc(t.invoice_no || '—')}</td>
-    </tr>`).join('') || '<tr><td colspan="10" class="px-4 py-10 text-center text-gray-400">No tickets found</td></tr>';
+    </tr>`).join('') || '<tr><td colspan="11" class="px-4 py-10 text-center text-gray-400">No tickets found</td></tr>';
 
   setInner('ticket-table-wrap', `
     <div class="overflow-x-auto">
-    <table class="w-full text-left" style="min-width:900px">
+    <table class="w-full text-left" style="min-width:1000px">
       <thead class="text-xs text-gray-500 uppercase bg-gray-50">
         <tr>
           <th class="px-4 py-3">Ticket #</th>
           <th class="px-4 py-3">Level</th>
           <th class="px-4 py-3">Request / Requester</th>
           <th class="px-4 py-3">Status</th>
+          <th class="px-4 py-3">SLA</th>
           <th class="px-4 py-3">Remote/On-site</th>
           <th class="px-4 py-3">Logged Time</th>
           <th class="px-4 py-3">Start Time</th>
@@ -336,9 +395,91 @@ function renderTicketTable(data) {
 /* ── New Ticket ───────────────────────────────────────────────────────────── */
 function resetNewTicket() {
   hideError('new-ticket-error');
-  ['nt-title','nt-description'].forEach(id => setVal(id,''));
+  ['nt-title','nt-description','nt-new-client-name','nt-new-contact-name',
+   'nt-new-contact-email','nt-new-contact-phone','nt-new-contact-password'].forEach(id => setVal(id,''));
   setVal('nt-category','it_support');
   setVal('nt-priority','medium');
+  hide('nt-new-client-fields');
+  hide('nt-new-contact-fields');
+
+  if (currentUser.role !== 'client') {
+    show('nt-behalf-wrap');
+    populateNewTicketClients();
+    show('nt-assign-wrap');
+    populateNewTicketAssignees();
+  } else {
+    hide('nt-behalf-wrap');
+    hide('nt-assign-wrap');
+  }
+}
+
+async function populateNewTicketClients() {
+  try {
+    if (clientList.length === 0) {
+      const data = await apiFetch('/clients');
+      clientList = data.clients || [];
+    }
+    const sel = el('nt-client');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">— Log as myself —</option>' +
+      '<option value="__new_client__">+ Add New Client…</option>' +
+      clientList.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+    el('nt-contact').innerHTML = '<option value="">— Select a client first —</option>';
+  } catch(_) {}
+}
+
+async function populateNewTicketAssignees() {
+  const sel = el('nt-assigned-to');
+  if (!sel) return;
+  try {
+    if (agentList.length === 0) {
+      await loadAgents();
+    }
+    sel.innerHTML = '<option value="">— Unassigned —</option>' +
+      agentList.map(a => `<option value="${a.id}">${esc(a.name)} (${a.role})</option>`).join('');
+  } catch(_) {}
+}
+
+async function onNewTicketClientChange() {
+  const clientId = val('nt-client');
+  const sel = el('nt-contact');
+
+  if (clientId === '__new_client__') {
+    // Brand new company — no existing contacts possible, go straight to new-contact fields.
+    sel.innerHTML = '<option value="">— New contact below —</option>';
+    show('nt-new-client-fields');
+    show('nt-new-contact-fields');
+    return;
+  }
+  hide('nt-new-client-fields');
+
+  if (!clientId) {
+    sel.innerHTML = '<option value="">— Select a client first —</option>';
+    hide('nt-new-contact-fields');
+    return;
+  }
+
+  sel.innerHTML = '<option value="">Loading…</option>';
+  try {
+    const client = await apiFetch(`/clients/${clientId}`);
+    const contacts = client.contacts || [];
+    sel.innerHTML =
+      '<option value="">— Select a contact —</option>' +
+      '<option value="__new_contact__">+ Add New Contact…</option>' +
+      contacts.map(c => `<option value="${c.id}">${esc(c.name)} (${esc(c.email)})</option>`).join('');
+  } catch(e) {
+    sel.innerHTML = '<option value="">Failed to load contacts</option>';
+  }
+  onNewTicketContactChange();
+}
+
+function onNewTicketContactChange() {
+  const contactVal = val('nt-contact');
+  if (contactVal === '__new_contact__') {
+    show('nt-new-contact-fields');
+  } else if (val('nt-client') !== '__new_client__') {
+    hide('nt-new-contact-fields');
+  }
 }
 
 async function submitTicket() {
@@ -348,7 +489,46 @@ async function submitTicket() {
   if (!title || !description) {
     return showError('new-ticket-error', 'Title and description are required.');
   }
+
+  const isStaff       = currentUser.role !== 'client';
+  const clientChoice  = isStaff ? val('nt-client')  : '';
+  const contactChoice = isStaff ? val('nt-contact') : '';
+  const assignedTo    = isStaff ? val('nt-assigned-to') : '';
+
+  let onBehalfOf = contactChoice && contactChoice !== '__new_contact__' ? contactChoice : '';
+
   try {
+    // Step 1: create a brand new client company, if requested
+    let targetClientId = (clientChoice && clientChoice !== '__new_client__') ? clientChoice : null;
+    if (clientChoice === '__new_client__') {
+      const newClientName = val('nt-new-client-name');
+      if (!newClientName) return showError('new-ticket-error', 'New company name is required.');
+      const newClient = await apiFetch('/clients', {
+        method: 'POST',
+        body: JSON.stringify({ name: newClientName }),
+      });
+      targetClientId = newClient.id;
+      clientList = []; // force refresh elsewhere (Clients tab) next time it loads
+    }
+
+    // Step 2: create a new contact under that client, if requested
+    if (clientChoice === '__new_client__' || contactChoice === '__new_contact__') {
+      const ncName     = val('nt-new-contact-name');
+      const ncEmail    = val('nt-new-contact-email');
+      const ncPassword = val('nt-new-contact-password');
+      if (!ncName || !ncEmail || !ncPassword) {
+        return showError('new-ticket-error', 'New contact name, email, and password are required.');
+      }
+      const newContact = await apiFetch(`/clients/${targetClientId}/users`, {
+        method: 'POST',
+        body: JSON.stringify({
+          name: ncName, email: ncEmail,
+          phone: val('nt-new-contact-phone'), password: ncPassword,
+        }),
+      });
+      onBehalfOf = newContact.id;
+    }
+
     const t = await apiFetch('/tickets', {
       method: 'POST',
       body: JSON.stringify({
@@ -357,6 +537,8 @@ async function submitTicket() {
         priority:      val('nt-priority'),
         request_level: val('nt-request-level'),
         support_type:  val('nt-support-type'),
+        ...(onBehalfOf ? { on_behalf_of: parseInt(onBehalfOf) } : {}),
+        ...(assignedTo ? { assigned_to: parseInt(assignedTo) } : {}),
       }),
     });
     navigate('ticket-detail', t.id);
@@ -460,6 +642,22 @@ function renderTicketDetail(t) {
 
       <!-- Right: meta -->
       <div class="space-y-4">
+        <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
+          <h3 class="font-semibold text-gray-700 text-sm border-b border-gray-100 pb-2 flex items-center justify-between">
+            SLA Status ${slaBadge(t)}
+          </h3>
+          <div class="text-sm">
+            <div class="text-gray-500 text-xs mb-0.5">First Response Due</div>
+            <div class="${t.sla_response_breached && !t.first_response_at ? 'text-red-600 font-medium' : ''}">${t.sla_response_due ? fmt(t.sla_response_due) : '—'}</div>
+            ${t.first_response_at ? `<div class="text-xs text-gray-400 mt-0.5">Responded: ${fmt(t.first_response_at)}</div>` : ''}
+          </div>
+          <div class="text-sm">
+            <div class="text-gray-500 text-xs mb-0.5">Resolution Due</div>
+            <div class="${t.sla_resolution_breached && !t.resolved_at ? 'text-red-600 font-medium' : ''}">${t.sla_resolution_due ? fmt(t.sla_resolution_due) : '—'}</div>
+            ${t.resolved_at ? `<div class="text-xs text-gray-400 mt-0.5">Resolved: ${fmt(t.resolved_at)}</div>` : ''}
+          </div>
+        </div>
+
         <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
           <h3 class="font-semibold text-gray-700 text-sm border-b border-gray-100 pb-2">Ticket Info</h3>
           <div class="text-sm">
@@ -857,7 +1055,7 @@ async function markAllRead() {
 
 async function pollNotifications() {
   updateBadge();
-  setInterval(updateBadge, 30000);
+  setInterval(updateBadge, 90000); // 90s — was 30s
 }
 
 async function updateBadge() {
@@ -896,6 +1094,147 @@ document.addEventListener('keydown', e => {
     if (!el('user-modal').classList.contains('hidden'))  saveUserEdit();
   }
 });
+
+/* ── Clients ──────────────────────────────────────────────────────────────── */
+async function loadClients() {
+  const q = val('client-search');
+  const params = new URLSearchParams();
+  if (q) params.set('q', q);
+
+  setInner('client-table-wrap', '<div class="flex justify-center py-12"><div class="spinner"></div></div>');
+  try {
+    const data = await apiFetch(`/clients?${params}`);
+    clientList = data.clients || [];
+    renderClientTable(clientList);
+  } catch(e) { setInner('client-table-wrap', `<p class="text-red-500 p-4">${e.message}</p>`); }
+}
+
+function renderClientTable(clients) {
+  const rows = clients.map(c => `
+    <tr>
+      <td class="px-4 py-3 text-sm font-medium text-gray-800">
+        <button onclick="openClientDetail(${c.id})" class="text-tia-600 hover:underline">${esc(c.name)}</button>
+      </td>
+      <td class="px-4 py-3 text-sm text-gray-600">${c.contact_count} contact${c.contact_count == 1 ? '' : 's'}</td>
+      <td class="px-4 py-3 text-sm text-gray-500">${esc(c.notes || '—')}</td>
+      <td class="px-4 py-3 text-xs text-gray-400">${fmt(c.created_at)}</td>
+      <td class="px-4 py-3 text-right">
+        <button onclick="openClientDetail(${c.id})" class="text-tia-600 hover:underline text-sm mr-3">View</button>
+        ${currentUser.role === 'admin' ? `<button onclick="deleteClient(${c.id})" class="text-red-500 hover:underline text-sm">Delete</button>` : ''}
+      </td>
+    </tr>`).join('') || '<tr><td colspan="5" class="px-4 py-10 text-center text-gray-400">No clients found</td></tr>';
+
+  setInner('client-table-wrap', `
+    <table class="w-full text-left">
+      <thead class="text-xs text-gray-500 uppercase bg-gray-50">
+        <tr>
+          <th class="px-4 py-3">Company</th>
+          <th class="px-4 py-3">Contacts</th>
+          <th class="px-4 py-3">Notes</th>
+          <th class="px-4 py-3">Added</th>
+          <th class="px-4 py-3 text-right">Actions</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">${rows}</tbody>
+    </table>`);
+}
+
+function openCreateClientModal() {
+  hideError('create-client-error');
+  setVal('cc-name', '');
+  setVal('cc-notes', '');
+  show('create-client-modal');
+}
+function closeCreateClientModal() { hide('create-client-modal'); }
+
+async function createClient() {
+  hideError('create-client-error');
+  try {
+    await apiFetch('/clients', {
+      method: 'POST',
+      body: JSON.stringify({ name: val('cc-name'), notes: val('cc-notes') }),
+    });
+    closeCreateClientModal();
+    clientList = []; // force refresh next time new-ticket picker loads
+    loadClients();
+  } catch(e) { showError('create-client-error', e.message); }
+}
+
+async function deleteClient(id) {
+  if (!confirm('Delete this client? This only works if it has no contacts.')) return;
+  try {
+    await apiFetch(`/clients/${id}`, { method: 'DELETE' });
+    clientList = [];
+    loadClients();
+  } catch(e) { alert(e.message); }
+}
+
+async function openClientDetail(id) {
+  currentClientId = id;
+  hide('client-table-wrap');
+  show('client-detail-panel');
+  setText('client-detail-name', 'Loading…');
+  setInner('client-contacts-wrap', '<div class="flex justify-center py-12"><div class="spinner"></div></div>');
+  try {
+    const client = await apiFetch(`/clients/${id}`);
+    setText('client-detail-name', client.name);
+    renderClientContacts(client.contacts || []);
+  } catch(e) { setInner('client-contacts-wrap', `<p class="text-red-500 p-4">${e.message}</p>`); }
+}
+
+function closeClientDetail() {
+  currentClientId = null;
+  hide('client-detail-panel');
+  show('client-table-wrap');
+}
+
+function renderClientContacts(contacts) {
+  const rows = contacts.map(c => `
+    <tr>
+      <td class="px-4 py-3 text-sm font-medium text-gray-800">${esc(c.name)}</td>
+      <td class="px-4 py-3 text-sm text-gray-600">${esc(c.email)}</td>
+      <td class="px-4 py-3 text-sm text-gray-500">${esc(c.phone || '—')}</td>
+      <td class="px-4 py-3 text-xs text-gray-400">${fmt(c.created_at)}</td>
+    </tr>`).join('') || '<tr><td colspan="4" class="px-4 py-10 text-center text-gray-400">No contacts yet</td></tr>';
+
+  setInner('client-contacts-wrap', `
+    <table class="w-full text-left">
+      <thead class="text-xs text-gray-500 uppercase bg-gray-50">
+        <tr>
+          <th class="px-4 py-3">Name</th>
+          <th class="px-4 py-3">Email</th>
+          <th class="px-4 py-3">Phone</th>
+          <th class="px-4 py-3">Added</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">${rows}</tbody>
+    </table>`);
+}
+
+function openAddContactModal() {
+  hideError('add-contact-error');
+  ['ac-name','ac-email','ac-phone','ac-password'].forEach(id => setVal(id, ''));
+  show('add-contact-modal');
+}
+function closeAddContactModal() { hide('add-contact-modal'); }
+
+async function createClientContact() {
+  hideError('add-contact-error');
+  if (!currentClientId) return;
+  try {
+    await apiFetch(`/clients/${currentClientId}/users`, {
+      method: 'POST',
+      body: JSON.stringify({
+        name:     val('ac-name'),
+        email:    val('ac-email'),
+        phone:    val('ac-phone'),
+        password: val('ac-password'),
+      }),
+    });
+    closeAddContactModal();
+    openClientDetail(currentClientId);
+  } catch(e) { showError('add-contact-error', e.message); }
+}
 
 /* ── Init ─────────────────────────────────────────────────────────────────── */
 (async function init() {

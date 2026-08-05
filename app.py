@@ -14,6 +14,8 @@ from routes.ticket_routes import ticket_bp
 from routes.user_routes import user_bp
 from routes.comment_routes import comment_bp
 from routes.dashboard_routes import dashboard_bp
+from routes.system_routes import system_bp
+from routes.client_routes import client_bp
 
 BASE_DIR = os.path.dirname(__file__)
 
@@ -45,6 +47,8 @@ app.register_blueprint(ticket_bp,    url_prefix="/api/tickets")
 app.register_blueprint(user_bp,      url_prefix="/api/users")
 app.register_blueprint(comment_bp,   url_prefix="/api/comments")
 app.register_blueprint(dashboard_bp, url_prefix="/api/dashboard")
+app.register_blueprint(system_bp,    url_prefix="/api/system")
+app.register_blueprint(client_bp,    url_prefix="/api/clients")
 
 
 # ── Serve SPA ──────────────────────────────────────────────────────────────────
