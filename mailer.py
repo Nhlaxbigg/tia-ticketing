@@ -206,3 +206,28 @@ def render_assignment_email(technician_name, ticket_no, title, request_level, pr
 <p>— TIA Ticketing System</p>
 """
     return _wrap(inner)
+
+
+def render_new_ticket_alert_email(staff_name, ticket_no, title, request_level, client_name, ticket_link=None):
+    staff_name  = html.escape(str(staff_name))
+    title       = html.escape(str(title))
+    client_name = html.escape(str(client_name))
+    link_line   = f'<p><a href="{html.escape(ticket_link)}">View ticket {html.escape(ticket_no)}</a></p>' if ticket_link else ""
+
+    inner = f"""
+<p>Hi {staff_name},</p>
+
+<p>A new support request has come in from a client and still needs to be assigned:</p>
+
+<p><strong>Ticket:</strong> {html.escape(ticket_no)}<br>
+<strong>Request:</strong> {title}<br>
+<strong>Request Level:</strong> {html.escape(str(request_level))}<br>
+<strong>Logged by:</strong> {client_name}</p>
+
+{link_line}
+
+<p>Please assign this ticket to a technician as soon as possible.</p>
+
+<p>— TIA Ticketing System</p>
+"""
+    return _wrap(inner)
