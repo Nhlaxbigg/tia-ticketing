@@ -3,10 +3,11 @@ TIA-Solutions Ticketing System — Main Flask Application
 """
 
 import os
-import secrets
 from flask import Flask, send_from_directory
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 from database import init_db
 from routes.auth_routes import auth_bp
@@ -26,20 +27,34 @@ app = Flask(
 )
 
 # ── Configuration ──────────────────────────────────────────────────────────────
-# In production set JWT_SECRET env var to a strong random string
-_default_secret = os.path.join(BASE_DIR, ".secret_key")
-if not os.path.exists(_default_secret):
-    with open(_default_secret, "w") as f:
-        f.write(secrets.token_hex(48))
-with open(_default_secret) as f:
-    _file_secret = f.read().strip()
+JWT_SECRET = os.environ.get("JWT_SECRET")
+if not JWT_SECRET:
+    # Fail loudly rather than silently falling back to a secret written to disk.
+    # Render's disk resets on every deploy, so a disk-based fallback quietly
+    # invalidates every session on every deploy with no clear error — this was
+    # the cause of a hard-to-diagnose "everyone gets logged out" bug previously.
+    raise RuntimeError(
+        "JWT_SECRET environment variable is not set. Set it in your deployment "
+        "environment (e.g. Render → Environment tab) before starting the app."
+    )
 
-app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET", _file_secret)
+app.config["JWT_SECRET_KEY"] = JWT_SECRET
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = 86400  # 24 hours
 app.config["PROPAGATE_EXCEPTIONS"] = True
 
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+# CORS: locked to the actual frontend origin(s). Add more entries here if a
+# custom domain is added later — a bare "*" would let any website's JS call
+# this API using a visitor's stolen/leaked token.
+ALLOWED_ORIGINS = [
+    o.strip() for o in os.environ.get(
+        "ALLOWED_ORIGINS", "https://tia-ticketing-1.onrender.com"
+    ).split(",") if o.strip()
+]
+CORS(app, resources={r"/api/*": {"origins": ALLOWED_ORIGINS}})
+
 jwt = JWTManager(app)
+
+limiter = Limiter(get_remote_address, app=app, storage_uri="memory://", default_limits=[])
 
 # ── Blueprints ─────────────────────────────────────────────────────────────────
 app.register_blueprint(auth_bp,      url_prefix="/api/auth")
@@ -49,6 +64,9 @@ app.register_blueprint(comment_bp,   url_prefix="/api/comments")
 app.register_blueprint(dashboard_bp, url_prefix="/api/dashboard")
 app.register_blueprint(system_bp,    url_prefix="/api/system")
 app.register_blueprint(client_bp,    url_prefix="/api/clients")
+
+# Rate limit brute-force-prone auth endpoints specifically.
+limiter.limit("10 per minute")(auth_bp)
 
 
 # ── Serve SPA ──────────────────────────────────────────────────────────────────
@@ -69,6 +87,4 @@ with app.app_context():
 if __name__ == "__main__":
     init_db()
     print("✅  TIA Ticketing System started at http://localhost:8080")
-    print("   Default admin  → admin@tia-solutions.co.za / Admin@1234")
-    print("   Default agent  → agent@tia-solutions.co.za / Agent@1234")
-    app.run(debug=True, port=8080)
+    app.run(debug=False, port=8080)
