@@ -1,8 +1,9 @@
-"""System/automation routes — SLA reminder job, triggered by an external scheduler."""
+"""System/automation routes — SLA reminder job + one-time backfills, triggered manually or by a scheduler."""
 
 import os
+from datetime import timezone
 from flask import Blueprint, request, jsonify
-from database import get_db, sla_status, log_action
+from database import get_db, sla_status, log_action, compute_sla_due_dates
 from mailer import send_email, render_sla_reminder_email
 
 system_bp = Blueprint("system", __name__)
@@ -11,13 +12,21 @@ CRON_SECRET = os.environ.get("CRON_SECRET")
 APP_BASE_URL = os.environ.get("APP_BASE_URL", "")  # e.g. https://tia-ticketing-1.onrender.com — used to build links in emails
 REMINDER_COOLDOWN_HOURS = 4  # don't re-notify the same ticket more than once per this window
 OPEN_STATUSES = ("open", "in_progress", "pending")
+STAFF_ROLES = ("admin", "agent", "technician")
+
+
+def _check_secret():
+    """Accept the secret via Authorization header OR a ?secret= query param,
+    so this can be triggered from a plain browser visit, not just curl/Postman."""
+    auth = request.headers.get("Authorization", "")
+    header_secret = auth[7:] if auth.startswith("Bearer ") else None
+    provided = header_secret or request.args.get("secret")
+    return bool(CRON_SECRET) and provided == CRON_SECRET
 
 
 @system_bp.route("/check-sla", methods=["POST"])
 def check_sla():
-    # Shared-secret auth — this endpoint has no user session, it's called by a cron trigger.
-    auth = request.headers.get("Authorization", "")
-    if not CRON_SECRET or auth != f"Bearer {CRON_SECRET}":
+    if not _check_secret():
         return jsonify(error="Unauthorized."), 401
 
     db  = get_db()
@@ -85,3 +94,80 @@ def check_sla():
     cur.close()
     db.close()
     return jsonify(checked=len(tickets), reminders_sent=len(notified), tickets=notified)
+
+
+@system_bp.route("/backfill-sla-dates", methods=["GET", "POST"])
+def backfill_sla_dates():
+    """One-time fixup: recompute sla_response_due/sla_resolution_due for every
+    still-open ticket using the business-hours-aware calculator, based on each
+    ticket's actual created_at and request_level. Resolved/closed tickets are
+    left untouched, since their historical breach outcome already happened and
+    shouldn't be rewritten after the fact. Safe to run more than once."""
+    if not _check_secret():
+        return jsonify(error="Unauthorized."), 401
+
+    db  = get_db()
+    cur = db.cursor()
+    cur.execute(
+        f"""SELECT id, created_at, request_level FROM tickets
+            WHERE status IN ({','.join(['%s']*len(OPEN_STATUSES))})""",
+        OPEN_STATUSES
+    )
+    tickets = cur.fetchall()
+
+    updated = []
+    for t in tickets:
+        created_at = t["created_at"]
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        response_due, resolution_due = compute_sla_due_dates(t["request_level"], created_at)
+        cur.execute(
+            "UPDATE tickets SET sla_response_due=%s, sla_resolution_due=%s WHERE id=%s",
+            (response_due, resolution_due, t["id"])
+        )
+        updated.append(t["id"])
+
+    db.commit()
+    cur.close()
+    db.close()
+    return jsonify(updated_count=len(updated), ticket_ids=updated)
+
+
+@system_bp.route("/backfill-first-response", methods=["GET", "POST"])
+def backfill_first_response():
+    """One-time fixup: for every ticket where first_response_at is still NULL,
+    find the earliest staff (admin/agent/technician) comment on that ticket and
+    backdate first_response_at to when that reply actually happened. Tickets
+    with no staff reply yet are left untouched. Safe to run more than once —
+    it only ever fills in NULLs, never overwrites an existing value."""
+    if not _check_secret():
+        return jsonify(error="Unauthorized."), 401
+
+    db  = get_db()
+    cur = db.cursor()
+    cur.execute(
+        """UPDATE tickets t
+           SET first_response_at = sub.first_staff_reply
+           FROM (
+               SELECT c.ticket_id, MIN(c.created_at) as first_staff_reply
+               FROM comments c
+               JOIN users u ON c.user_id = u.id
+               WHERE u.role IN %s
+               GROUP BY c.ticket_id
+           ) sub
+           WHERE t.id = sub.ticket_id AND t.first_response_at IS NULL
+           RETURNING t.id, t.ticket_no, t.first_response_at""",
+        (STAFF_ROLES,)
+    )
+    updated = cur.fetchall()
+
+    for row in updated:
+        log_action(cur, row["id"], None, "first_response_backfilled", str(row["first_response_at"]))
+
+    db.commit()
+    cur.close()
+    db.close()
+    return jsonify(
+        updated_count=len(updated),
+        tickets=[{"id": r["id"], "ticket_no": r["ticket_no"], "first_response_at": str(r["first_response_at"])} for r in updated]
+    )
