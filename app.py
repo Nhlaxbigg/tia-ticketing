@@ -3,7 +3,7 @@ TIA-Solutions Ticketing System — Main Flask Application
 """
 
 import os
-from flask import Flask, send_from_directory
+from flask import Flask, send_from_directory, jsonify
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from flask_limiter import Limiter
@@ -67,6 +67,11 @@ app.register_blueprint(client_bp,    url_prefix="/api/clients")
 
 # Rate limit brute-force-prone auth endpoints specifically.
 limiter.limit("10 per minute")(auth_bp)
+
+
+@app.errorhandler(429)
+def handle_rate_limit(e):
+    return jsonify(error="Too many attempts. Please wait a minute and try again."), 429
 
 
 # ── Serve SPA ──────────────────────────────────────────────────────────────────
