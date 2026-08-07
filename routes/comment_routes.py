@@ -2,9 +2,11 @@
 
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from database import get_db
+from database import get_db, log_action
 
 comment_bp = Blueprint("comments", __name__)
+
+STAFF_ROLES = ("admin", "agent", "technician")
 
 
 @comment_bp.route("/<int:ticket_id>", methods=["POST"])
@@ -29,7 +31,7 @@ def add_comment(ticket_id):
     if user["role"] == "client" and t["created_by"] != uid:
         cur.close(); db.close(); return jsonify(error="Access denied."), 403
 
-    is_internal = int(bool(data.get("is_internal"))) if user["role"] in ("admin","agent","technician") else 0
+    is_internal = int(bool(data.get("is_internal"))) if user["role"] in STAFF_ROLES else 0
 
     cur.execute(
         "INSERT INTO comments (ticket_id, user_id, body, is_internal) VALUES (%s,%s,%s,%s) RETURNING id",
@@ -37,8 +39,12 @@ def add_comment(ticket_id):
     )
     comment_id = cur.fetchone()["id"]
 
-    # Update ticket updated_at
-    cur.execute("UPDATE tickets SET updated_at=NOW() WHERE id=%s", (ticket_id,))
+    # The first staff reply on a ticket satisfies the "first response" SLA target.
+    if user["role"] in STAFF_ROLES and not t["first_response_at"]:
+        cur.execute("UPDATE tickets SET updated_at=NOW(), first_response_at=NOW() WHERE id=%s", (ticket_id,))
+        log_action(cur, ticket_id, uid, "first_response", "")
+    else:
+        cur.execute("UPDATE tickets SET updated_at=NOW() WHERE id=%s", (ticket_id,))
 
     # Notify other party
     notify_uid = t["created_by"] if uid != t["created_by"] else (t["assigned_to"] or None)
