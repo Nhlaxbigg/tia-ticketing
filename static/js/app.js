@@ -161,7 +161,7 @@ async function submitForgotPassword() {
       method: 'POST',
       body: JSON.stringify({ email }),
     });
-    el('forgot-success').textContent = data.message || "If that email exists, we've sent a reset link.";
+    el('forgot-success').textContent = data.message || 'A password reset link has been sent to your email.';
     show('forgot-success');
   } catch(e) { showError('forgot-error', e.message); }
 }
