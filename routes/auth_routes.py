@@ -100,7 +100,7 @@ def forgot_password():
     # Always return the same generic response whether or not the email exists,
     # so this endpoint can't be used to discover which emails are registered.
     generic_response = jsonify(
-        message="If an account exists for that email, a password reset link has been sent."
+        message="A password reset link has been sent to your email."
     )
 
     if not email:
