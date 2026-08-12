@@ -26,17 +26,27 @@ def register():
     role     = "client"  # public self-registration can only ever create client accounts;
                           # staff accounts are created by an admin (Users/Clients tab), never self-registered.
 
-    if not name or not email or not password:
-        return jsonify(error="Name, email and password are required."), 400
+    if not name or not email or not password or not company:
+        return jsonify(error="Name, email, company, and password are required."), 400
     if len(password) < 8:
         return jsonify(error="Password must be at least 8 characters."), 400
 
     db = get_db()
     cur = db.cursor()
     try:
+        # Find or create the matching client company so this contact shows up
+        # under the Clients tab, not just as a standalone user.
+        cur.execute("SELECT id FROM clients WHERE LOWER(name) = LOWER(%s)", (company,))
+        existing_client = cur.fetchone()
+        if existing_client:
+            client_id = existing_client["id"]
+        else:
+            cur.execute("INSERT INTO clients (name) VALUES (%s) RETURNING id", (company,))
+            client_id = cur.fetchone()["id"]
+
         cur.execute(
-            "INSERT INTO users (name, email, password, role, company, phone) VALUES (%s,%s,%s,%s,%s,%s)",
-            (name, email, generate_password_hash(password), role, company, phone),
+            "INSERT INTO users (name, email, password, role, company, phone, client_id) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+            (name, email, generate_password_hash(password), role, company, phone, client_id),
         )
         db.commit()
     except Exception:
