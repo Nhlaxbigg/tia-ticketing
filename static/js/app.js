@@ -137,6 +137,9 @@ async function doLogin() {
 
 async function doRegister() {
   hideError('reg-error'); hideError('reg-success');
+  if (!val('reg-name') || !val('reg-email') || !val('reg-company') || !val('reg-password')) {
+    return showError('reg-error', 'Name, email, company, and password are required.');
+  }
   try {
     await apiFetch('/auth/register', {
       method: 'POST',
