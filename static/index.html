@@ -60,7 +60,10 @@
               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tia-500" />
           </div>
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+            <div class="flex items-center justify-between mb-1">
+              <label class="block text-sm font-medium text-gray-700">Password</label>
+              <button onclick="showForgotPassword()" class="text-xs text-tia-600 hover:underline">Forgot password?</button>
+            </div>
             <input id="login-password" type="password" placeholder="••••••••"
               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tia-500" />
           </div>
@@ -74,9 +77,57 @@
         </p>
       </div>
 
+      <!-- Forgot Password Form -->
+      <div id="forgot-password-form" class="hidden">
+        <h2 class="text-xl font-semibold mb-2 text-center text-gray-700">Reset Password</h2>
+        <p class="text-center text-sm text-gray-500 mb-6">Enter your email and we'll send you a reset link.</p>
+        <div id="forgot-error" class="hidden mb-4 p-3 bg-red-50 text-red-700 rounded-lg text-sm"></div>
+        <div id="forgot-success" class="hidden mb-4 p-3 bg-green-50 text-green-700 rounded-lg text-sm"></div>
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+            <input id="forgot-email" type="email" placeholder="you@example.com"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tia-500" />
+          </div>
+          <button onclick="submitForgotPassword()"
+            class="w-full bg-tia-600 hover:bg-tia-700 text-white font-semibold py-2 rounded-lg transition text-sm">
+            Send Reset Link
+          </button>
+        </div>
+        <p class="text-center text-sm text-gray-500 mt-6">
+          <button onclick="showLogin()" class="text-tia-600 font-medium hover:underline">Back to Sign In</button>
+        </p>
+      </div>
+
+      <!-- Reset Password Form (reached via emailed link with ?token=...) -->
+      <div id="reset-password-form" class="hidden">
+        <h2 class="text-xl font-semibold mb-6 text-center text-gray-700">Choose a New Password</h2>
+        <div id="reset-error" class="hidden mb-4 p-3 bg-red-50 text-red-700 rounded-lg text-sm"></div>
+        <div id="reset-success" class="hidden mb-4 p-3 bg-green-50 text-green-700 rounded-lg text-sm"></div>
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">New Password</label>
+            <input id="reset-password-input" type="password" placeholder="At least 8 characters"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tia-500" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Confirm New Password</label>
+            <input id="reset-password-confirm" type="password" placeholder="Repeat password"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tia-500" />
+          </div>
+          <button onclick="submitResetPassword()"
+            class="w-full bg-tia-600 hover:bg-tia-700 text-white font-semibold py-2 rounded-lg transition text-sm">
+            Reset Password
+          </button>
+        </div>
+        <p class="text-center text-sm text-gray-500 mt-6">
+          <button onclick="showLogin()" class="text-tia-600 font-medium hover:underline">Back to Sign In</button>
+        </p>
+      </div>
+
       <!-- Register Form -->
       <div id="register-form" class="hidden">
-        <h2 class="text-xl font-semibold mb-6 text-center text-gray-700">Create Account</h2>
+        <h2 class="text-xl font-semibold mb-6 text-center text-gray-700">Create Client Account</h2>
         <div id="reg-error" class="hidden mb-4 p-3 bg-red-50 text-red-700 rounded-lg text-sm"></div>
         <div id="reg-success" class="hidden mb-4 p-3 bg-green-50 text-green-700 rounded-lg text-sm"></div>
         <div class="space-y-3">
@@ -84,14 +135,10 @@
             class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tia-500" />
           <input id="reg-email"   type="email" placeholder="Email Address"
             class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tia-500" />
-          <input id="reg-company" type="text"  placeholder="Company Name"
+          <input id="reg-company" type="text"  placeholder="Company Name *"
             class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tia-500" />
           <input id="reg-phone"   type="tel"   placeholder="Phone Number"
             class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tia-500" />
-          <select id="reg-role" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tia-500">
-            <option value="client">Client Account</option>
-            <option value="technician">Technician Account</option>
-          </select>
           <input id="reg-password" type="password" placeholder="Password (min 8 chars)"
             class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tia-500" />
           <button onclick="doRegister()"

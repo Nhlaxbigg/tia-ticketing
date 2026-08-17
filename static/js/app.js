@@ -107,8 +107,19 @@ function slaBadge(t) {
 }
 
 /* ── Auth ─────────────────────────────────────────────────────────────────── */
-function showLogin()    { hide('register-form'); show('login-form'); hideError('login-error'); hideError('reg-error'); hideError('reg-success'); }
-function showRegister() { hide('login-form'); show('register-form'); }
+const AUTH_FORMS = ['login-form', 'register-form', 'forgot-password-form', 'reset-password-form'];
+function hideAllAuthForms() { AUTH_FORMS.forEach(hide); }
+
+function showLogin() {
+  hideAllAuthForms(); show('login-form');
+  hideError('login-error'); hideError('reg-error'); hideError('reg-success');
+}
+function showRegister() { hideAllAuthForms(); show('register-form'); }
+function showForgotPassword() {
+  hideAllAuthForms(); show('forgot-password-form');
+  hideError('forgot-error'); hideError('forgot-success');
+  setVal('forgot-email', '');
+}
 
 async function doLogin() {
   hideError('login-error');
@@ -126,19 +137,58 @@ async function doLogin() {
 
 async function doRegister() {
   hideError('reg-error'); hideError('reg-success');
+  if (!val('reg-name') || !val('reg-email') || !val('reg-company') || !val('reg-password')) {
+    return showError('reg-error', 'Name, email, company, and password are required.');
+  }
   try {
     await apiFetch('/auth/register', {
       method: 'POST',
       body: JSON.stringify({
         name: val('reg-name'), email: val('reg-email'),
         company: val('reg-company'), phone: val('reg-phone'),
-        role: val('reg-role'), password: val('reg-password'),
+        password: val('reg-password'),
       }),
     });
     el('reg-success').textContent = 'Account created! Please sign in.';
     show('reg-success');
     setTimeout(showLogin, 1500);
   } catch(e) { showError('reg-error', e.message); }
+}
+
+async function submitForgotPassword() {
+  hideError('forgot-error'); hideError('forgot-success');
+  const email = val('forgot-email');
+  if (!email) return showError('forgot-error', 'Please enter your email.');
+  try {
+    const data = await apiFetch('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+    el('forgot-success').textContent = data.message || 'A password reset link has been sent to your email.';
+    show('forgot-success');
+  } catch(e) { showError('forgot-error', e.message); }
+}
+
+let resetPasswordToken = null;
+
+async function submitResetPassword() {
+  hideError('reset-error'); hideError('reset-success');
+  const password = val('reset-password-input');
+  const confirm  = val('reset-password-confirm');
+  if (!password || password.length < 8) return showError('reset-error', 'Password must be at least 8 characters.');
+  if (password !== confirm) return showError('reset-error', 'Passwords do not match.');
+  if (!resetPasswordToken) return showError('reset-error', 'This reset link is missing its token — please use the link from your email.');
+  try {
+    const data = await apiFetch('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ token: resetPasswordToken, password }),
+    });
+    el('reset-success').textContent = data.message || 'Password reset — please sign in.';
+    show('reset-success');
+    // Clean the token out of the URL so refreshing doesn't re-show the reset form.
+    window.history.replaceState({}, '', '/');
+    setTimeout(showLogin, 1800);
+  } catch(e) { showError('reset-error', e.message); }
 }
 
 function doLogout() {
@@ -1238,6 +1288,18 @@ async function createClientContact() {
 
 /* ── Init ─────────────────────────────────────────────────────────────────── */
 (async function init() {
+  // A password-reset email link takes priority over any existing session —
+  // show the reset form directly rather than booting into the app.
+  const params = new URLSearchParams(window.location.search);
+  const tokenFromLink = params.get('token');
+  if (window.location.pathname.replace(/\/$/, '').endsWith('reset-password') && tokenFromLink) {
+    resetPasswordToken = tokenFromLink;
+    show('auth-screen');
+    hideAllAuthForms();
+    show('reset-password-form');
+    return;
+  }
+
   const saved = token();
   if (!saved) { show('auth-screen'); showLogin(); return; }
   try {

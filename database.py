@@ -124,6 +124,8 @@ def init_db():
         )
     """)
     c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS client_id INTEGER REFERENCES clients(id)")
+    c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token TEXT")
+    c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMP")
 
     # Tickets
     c.execute("""

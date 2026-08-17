@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from database import get_db, next_ticket_no, compute_sla_due_dates, sla_status, log_action
-from mailer import send_email, render_ack_email, render_resolved_email, render_assignment_email
+from mailer import send_email, render_ack_email, render_resolved_email, render_assignment_email, render_new_ticket_alert_email
 
 ticket_bp = Blueprint("tickets", __name__)
 
@@ -213,6 +213,29 @@ def create_ticket():
             cc_email=ticket["assignee_email"],
             cc_name=ticket["assignee_name"],
         )
+
+        # Client-opened ticket with no assignee yet — alert technicians so it doesn't sit unnoticed.
+        if not ticket["assigned_to"]:
+            db2  = get_db()
+            cur2 = db2.cursor()
+            cur2.execute("SELECT id, name, email FROM users WHERE role = 'technician'")
+            staff = cur2.fetchall()
+            cur2.close()
+            db2.close()
+
+            ticket_link = f"{APP_BASE_URL}/ticket/{ticket_id}" if APP_BASE_URL else None
+            for s in staff:
+                if not s["email"]:
+                    continue
+                alert_html = render_new_ticket_alert_email(
+                    staff_name=s["name"],
+                    ticket_no=ticket["ticket_no"],
+                    title=ticket["title"],
+                    request_level=ticket["request_level"],
+                    client_name=ticket["creator_name"],
+                    ticket_link=ticket_link,
+                )
+                send_email(s["email"], s["name"], f"New Ticket Needs Assignment – {ticket['ticket_no']}", alert_html)
 
     return jsonify(_with_sla(ticket)), 201
 

@@ -171,3 +171,41 @@ def backfill_first_response():
         updated_count=len(updated),
         tickets=[{"id": r["id"], "ticket_no": r["ticket_no"], "first_response_at": str(r["first_response_at"])} for r in updated]
     )
+
+
+@system_bp.route("/backfill-client-companies", methods=["GET", "POST"])
+def backfill_client_companies():
+    """One-time fixup: link every client-role user who has no client_id yet
+    (e.g. anyone who self-registered before registration required/linked a
+    company) to a clients row, so they actually show up under the Clients tab.
+    Uses each user's existing `company` text field to find-or-create a
+    matching company; users with no company text on file are grouped under
+    a single "Unassigned Clients" company so nobody is left invisible. Safe
+    to run more than once — only ever fills in NULL client_id, never
+    reassigns an existing one."""
+    if not _check_secret():
+        return jsonify(error="Unauthorized."), 401
+
+    db  = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT id, company FROM users WHERE role='client' AND client_id IS NULL")
+    orphans = cur.fetchall()
+
+    updated = []
+    for u in orphans:
+        company_name = (u["company"] or "").strip() or "Unassigned Clients"
+        cur.execute("SELECT id FROM clients WHERE LOWER(name) = LOWER(%s)", (company_name,))
+        existing = cur.fetchone()
+        if existing:
+            client_id = existing["id"]
+        else:
+            cur.execute("INSERT INTO clients (name) VALUES (%s) RETURNING id", (company_name,))
+            client_id = cur.fetchone()["id"]
+
+        cur.execute("UPDATE users SET client_id=%s WHERE id=%s", (client_id, u["id"]))
+        updated.append({"user_id": u["id"], "company": company_name})
+
+    db.commit()
+    cur.close()
+    db.close()
+    return jsonify(updated_count=len(updated), users=updated)

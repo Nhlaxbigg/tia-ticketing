@@ -206,3 +206,53 @@ def render_assignment_email(technician_name, ticket_no, title, request_level, pr
 <p>— TIA Ticketing System</p>
 """
     return _wrap(inner)
+
+
+def render_new_ticket_alert_email(staff_name, ticket_no, title, request_level, client_name, ticket_link=None):
+    staff_name  = html.escape(str(staff_name))
+    title       = html.escape(str(title))
+    client_name = html.escape(str(client_name))
+    link_line   = f'<p><a href="{html.escape(ticket_link)}">View ticket {html.escape(ticket_no)}</a></p>' if ticket_link else ""
+
+    inner = f"""
+<p>Hi {staff_name},</p>
+
+<p>A new support request has come in from a client and still needs to be assigned:</p>
+
+<p><strong>Ticket:</strong> {html.escape(ticket_no)}<br>
+<strong>Request:</strong> {title}<br>
+<strong>Request Level:</strong> {html.escape(str(request_level))}<br>
+<strong>Logged by:</strong> {client_name}</p>
+
+{link_line}
+
+<p>Please assign this ticket to a technician as soon as possible.</p>
+
+<p>— TIA Ticketing System</p>
+"""
+    return _wrap(inner)
+
+
+def render_password_reset_email(user_name, reset_link, valid_hours=1):
+    user_name = html.escape(str(user_name))
+
+    if reset_link:
+        link_block = f'<p><a href="{html.escape(reset_link)}">Reset your password</a></p>'
+    else:
+        # APP_BASE_URL isn't configured — degrade gracefully rather than send a dead-end email.
+        link_block = "<p>Please contact TIA Solutions support to complete your password reset.</p>"
+
+    inner = f"""
+<p>Hi {user_name},</p>
+
+<p>We received a request to reset your TIA Ticketing password. Click the link below to
+choose a new one:</p>
+
+{link_block}
+
+<p>This link expires in {valid_hours} hour{'s' if valid_hours != 1 else ''}. If you didn't
+request this, you can safely ignore this email — your password won't be changed.</p>
+
+<p>— TIA Ticketing System</p>
+"""
+    return _wrap(inner)
