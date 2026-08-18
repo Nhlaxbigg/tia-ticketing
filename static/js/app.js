@@ -214,7 +214,7 @@ async function bootApp() {
 
   // Show staff-only nav items
   if (currentUser.role === 'admin' || currentUser.role === 'technician') { show('nav-users'); }
-  if (currentUser.role !== 'client') { show('nav-clients'); }
+  if (currentUser.role !== 'client') { show('nav-clients'); show('nav-job-cards'); }
 
   // Load agents/technicians BEFORE navigating so the assign dropdown is ready
   if (currentUser.role !== 'client') {
@@ -238,7 +238,7 @@ async function loadAgents() {
 }
 
 /* ── Navigation ───────────────────────────────────────────────────────────── */
-const VIEWS = ['dashboard','tickets','new-ticket','ticket-detail','users','clients','notifications'];
+const VIEWS = ['dashboard','tickets','new-ticket','ticket-detail','users','clients','job-cards','notifications'];
 
 function navigate(view, id = null) {
   VIEWS.forEach(v => hide(`view-${v}`));
@@ -251,6 +251,7 @@ function navigate(view, id = null) {
     'ticket-detail': 'Ticket Detail',
     'users':         'User Management',
     'clients':       'Clients',
+    'job-cards':     'Job Cards',
     'notifications': 'Notifications',
   };
   setText('page-title', titles[view] || '');
@@ -266,6 +267,7 @@ function navigate(view, id = null) {
   if (view === 'ticket-detail')  loadTicketDetail(id || currentTicketId);
   if (view === 'users')          loadUsers();
   if (view === 'clients')        { closeClientDetail(); loadClients(); }
+  if (view === 'job-cards')      { closeJobCardForm(); loadJobCards(); }
   if (view === 'notifications')  loadNotifications();
 }
 
@@ -1284,6 +1286,188 @@ async function createClientContact() {
     closeAddContactModal();
     openClientDetail(currentClientId);
   } catch(e) { showError('add-contact-error', e.message); }
+}
+
+/* ── Job Cards ────────────────────────────────────────────────────────────── */
+let editingJobCardId = null;
+let jobCardTicketList = [];
+
+async function loadJobCards() {
+  const q = val('jc-search');
+  const params = new URLSearchParams();
+  if (q) params.set('q', q);
+
+  setInner('jc-table-wrap', '<div class="flex justify-center py-12"><div class="spinner"></div></div>');
+  try {
+    const data = await apiFetch(`/job-cards?${params}`);
+    renderJobCardTable(data.job_cards || []);
+  } catch(e) { setInner('jc-table-wrap', `<p class="text-red-500 p-4">${e.message}</p>`); }
+}
+
+function renderJobCardTable(cards) {
+  const rows = cards.map(jc => `
+    <tr>
+      <td class="px-4 py-3 text-xs font-mono text-tia-700 whitespace-nowrap">${jc.job_card_no}</td>
+      <td class="px-4 py-3 text-sm font-medium text-gray-800">${esc(jc.customer_name || '—')}</td>
+      <td class="px-4 py-3 text-xs text-gray-500">${jc.ticket_no ? esc(jc.ticket_no) : '—'}</td>
+      <td class="px-4 py-3 text-xs text-gray-500">${esc(jc.job_done_by || '—')}</td>
+      <td class="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">${fmt(jc.date_received)}</td>
+      <td class="px-4 py-3 text-xs text-gray-500">${jc.signed_by ? '<span class="text-green-600">Signed off</span>' : 'Open'}</td>
+      <td class="px-4 py-3 text-right">
+        <button onclick="openJobCardForm(${jc.id})" class="text-tia-600 hover:underline text-sm mr-3">View / Edit</button>
+        ${currentUser.role === 'admin' ? `<button onclick="deleteJobCard(${jc.id})" class="text-red-500 hover:underline text-sm">Delete</button>` : ''}
+      </td>
+    </tr>`).join('') || '<tr><td colspan="7" class="px-4 py-10 text-center text-gray-400">No job cards found</td></tr>';
+
+  setInner('jc-table-wrap', `
+    <table class="w-full text-left">
+      <thead class="text-xs text-gray-500 uppercase bg-gray-50">
+        <tr>
+          <th class="px-4 py-3">Job Card #</th>
+          <th class="px-4 py-3">Customer</th>
+          <th class="px-4 py-3">Linked Ticket</th>
+          <th class="px-4 py-3">Job Done By</th>
+          <th class="px-4 py-3">Date Received</th>
+          <th class="px-4 py-3">Status</th>
+          <th class="px-4 py-3 text-right">Actions</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">${rows}</tbody>
+    </table>`);
+}
+
+async function populateJobCardTicketDropdown(selectedTicketId) {
+  const sel = el('jc-ticket-id');
+  if (!sel) return;
+  try {
+    if (jobCardTicketList.length === 0) {
+      const data = await apiFetch('/tickets?page=1');
+      jobCardTicketList = data.tickets || [];
+    }
+    sel.innerHTML = '<option value="">— Standalone (no ticket) —</option>' +
+      jobCardTicketList.map(t => `<option value="${t.id}">${esc(t.ticket_no)} — ${esc(t.title)}</option>`).join('');
+    if (selectedTicketId) sel.value = selectedTicketId;
+  } catch(_) {}
+}
+
+async function openJobCardForm(id = null) {
+  hideError('jc-form-error');
+  editingJobCardId = id;
+  hide('jc-list-panel');
+  show('jc-form-panel');
+  hide('jc-print-btn');
+
+  const fields = ['jc-customer-name','jc-address','jc-contact-name','jc-tel-no','jc-email',
+    'jc-instruction-taken-by','jc-job-done-by','jc-time-started','jc-time-completed',
+    'jc-instructions','jc-comments','jc-signed-by','jc-designation'];
+  fields.forEach(f => setVal(f, ''));
+
+  if (id) {
+    setText('jc-form-title', 'Loading…');
+    try {
+      const jc = await apiFetch(`/job-cards/${id}`);
+      setText('jc-form-title', jc.job_card_no);
+      setVal('jc-customer-name', jc.customer_name);
+      setVal('jc-address', jc.address);
+      setVal('jc-contact-name', jc.contact_name);
+      setVal('jc-tel-no', jc.tel_no);
+      setVal('jc-email', jc.email);
+      setVal('jc-instruction-taken-by', jc.instruction_taken_by);
+      setVal('jc-job-done-by', jc.job_done_by);
+      setVal('jc-time-started', jc.time_started);
+      setVal('jc-time-completed', jc.time_completed);
+      setVal('jc-instructions', jc.instructions);
+      setVal('jc-comments', jc.comments);
+      setVal('jc-signed-by', jc.signed_by);
+      setVal('jc-designation', jc.designation);
+      await populateJobCardTicketDropdown(jc.ticket_id);
+      show('jc-print-btn');
+    } catch(e) { showError('jc-form-error', e.message); }
+  } else {
+    setText('jc-form-title', 'New Job Card');
+    await populateJobCardTicketDropdown(null);
+  }
+}
+
+function closeJobCardForm() {
+  editingJobCardId = null;
+  hide('jc-form-panel');
+  show('jc-list-panel');
+}
+
+async function saveJobCard() {
+  hideError('jc-form-error');
+  const payload = {
+    customer_name:        val('jc-customer-name'),
+    address:               val('jc-address'),
+    contact_name:          val('jc-contact-name'),
+    tel_no:                val('jc-tel-no'),
+    email:                 val('jc-email'),
+    instruction_taken_by:  val('jc-instruction-taken-by'),
+    job_done_by:           val('jc-job-done-by'),
+    time_started:          val('jc-time-started'),
+    time_completed:        val('jc-time-completed'),
+    instructions:          val('jc-instructions'),
+    comments:               val('jc-comments'),
+    signed_by:             val('jc-signed-by'),
+    designation:           val('jc-designation'),
+    ticket_id:             val('jc-ticket-id') ? parseInt(val('jc-ticket-id')) : null,
+  };
+  try {
+    if (editingJobCardId) {
+      await apiFetch(`/job-cards/${editingJobCardId}`, { method: 'PUT', body: JSON.stringify(payload) });
+    } else {
+      const created = await apiFetch('/job-cards', { method: 'POST', body: JSON.stringify(payload) });
+      editingJobCardId = created.id;
+      setText('jc-form-title', created.job_card_no);
+      show('jc-print-btn');
+    }
+    loadJobCards();
+  } catch(e) { showError('jc-form-error', e.message); }
+}
+
+async function deleteJobCard(id) {
+  if (!confirm('Delete this job card? This cannot be undone.')) return;
+  try {
+    await apiFetch(`/job-cards/${id}`, { method: 'DELETE' });
+    loadJobCards();
+  } catch(e) { alert(e.message); }
+}
+
+async function printJobCard() {
+  if (!editingJobCardId) return;
+  let jc;
+  try {
+    jc = await apiFetch(`/job-cards/${editingJobCardId}`);
+  } catch(e) { return alert('Could not load job card for printing: ' + e.message); }
+
+  const tpl = el('jc-print-template');
+  if (!tpl) return;
+
+  const setTxt = (id, v) => { const e2 = tpl.querySelector('#' + id); if (e2) e2.textContent = v || ''; };
+  setTxt('jcp-job-no', jc.job_card_no);
+  setTxt('jcp-jobno2', jc.job_card_no);
+  setTxt('jcp-customer', jc.customer_name);
+  setTxt('jcp-address', jc.address);
+  setTxt('jcp-contact', jc.contact_name);
+  setTxt('jcp-tel', jc.tel_no);
+  setTxt('jcp-email', jc.email);
+  setTxt('jcp-date-received', jc.date_received ? fmt(jc.date_received) : '');
+  setTxt('jcp-taken-by', jc.instruction_taken_by);
+  setTxt('jcp-done-by', jc.job_done_by);
+  setTxt('jcp-time-started', jc.time_started);
+  setTxt('jcp-time-completed', jc.time_completed);
+  setTxt('jcp-instructions', jc.instructions);
+  setTxt('jcp-comments', jc.comments);
+  setTxt('jcp-signed-by', jc.signed_by);
+  setTxt('jcp-designation', jc.designation);
+  setTxt('jcp-signed-date', jc.signed_date ? fmt(jc.signed_date) : '');
+
+  const printWindow = window.open('', '_blank', 'width=850,height=1000');
+  if (!printWindow) return alert('Please allow pop-ups to print the job card.');
+  printWindow.document.write(`<!DOCTYPE html><html><head><title>${jc.job_card_no}</title></head><body>${tpl.innerHTML}</body></html>`);
+  printWindow.document.close();
+  printWindow.onload = () => { printWindow.focus(); printWindow.print(); };
 }
 
 /* ── Init ─────────────────────────────────────────────────────────────────── */
