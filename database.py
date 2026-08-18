@@ -195,6 +195,34 @@ def init_db():
 
     c.execute("CREATE SEQUENCE IF NOT EXISTS ticket_no_seq START 1")
 
+    # Job cards — standalone onsite work records, optionally linked to a ticket
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS job_cards (
+            id                    SERIAL  PRIMARY KEY,
+            job_card_no           TEXT    NOT NULL UNIQUE,
+            ticket_id             INTEGER REFERENCES tickets(id) ON DELETE SET NULL,
+            customer_name         TEXT,
+            address               TEXT,
+            contact_name          TEXT,
+            tel_no                TEXT,
+            email                 TEXT,
+            date_received         TIMESTAMP,
+            instruction_taken_by  TEXT,
+            job_done_by           TEXT,
+            time_started          TEXT,
+            time_completed        TEXT,
+            instructions          TEXT,
+            comments              TEXT,
+            signed_by             TEXT,
+            designation           TEXT,
+            signed_date           TIMESTAMP,
+            created_by            INTEGER REFERENCES users(id),
+            created_at            TIMESTAMP DEFAULT NOW(),
+            updated_at            TIMESTAMP DEFAULT NOW()
+        )
+    """)
+    c.execute("CREATE SEQUENCE IF NOT EXISTS job_card_no_seq START 1")
+
     # Audit log
     c.execute("""
         CREATE TABLE IF NOT EXISTS audit_log (
@@ -238,6 +266,16 @@ def next_ticket_no():
     c.close()
     conn.close()
     return f"TIA-{num:05d}"
+
+
+def next_job_card_no():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT nextval('job_card_no_seq') as num")
+    num = c.fetchone()["num"]
+    c.close()
+    conn.close()
+    return f"JC-{num:05d}"
 
 
 def log_action(cur, ticket_id, user_id, action, details=""):
