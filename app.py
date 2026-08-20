@@ -18,6 +18,7 @@ from routes.dashboard_routes import dashboard_bp
 from routes.system_routes import system_bp
 from routes.client_routes import client_bp
 from routes.job_card_routes import job_card_bp
+from routes.report_routes import report_bp
 
 BASE_DIR = os.path.dirname(__file__)
 
@@ -66,6 +67,7 @@ app.register_blueprint(dashboard_bp, url_prefix="/api/dashboard")
 app.register_blueprint(system_bp,    url_prefix="/api/system")
 app.register_blueprint(client_bp,    url_prefix="/api/clients")
 app.register_blueprint(job_card_bp,  url_prefix="/api/job-cards")
+app.register_blueprint(report_bp,    url_prefix="/api/reports")
 
 # Rate limit brute-force-prone auth endpoints specifically.
 limiter.limit("10 per minute")(auth_bp)
