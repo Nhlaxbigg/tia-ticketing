@@ -214,7 +214,7 @@ async function bootApp() {
 
   // Show staff-only nav items
   if (currentUser.role === 'admin' || currentUser.role === 'technician') { show('nav-users'); }
-  if (currentUser.role !== 'client') { show('nav-clients'); show('nav-job-cards'); }
+  if (currentUser.role !== 'client') { show('nav-clients'); show('nav-job-cards'); show('nav-reports'); }
 
   // Load agents/technicians BEFORE navigating so the assign dropdown is ready
   if (currentUser.role !== 'client') {
@@ -238,7 +238,7 @@ async function loadAgents() {
 }
 
 /* ── Navigation ───────────────────────────────────────────────────────────── */
-const VIEWS = ['dashboard','tickets','new-ticket','ticket-detail','users','clients','job-cards','notifications'];
+const VIEWS = ['dashboard','tickets','new-ticket','ticket-detail','users','clients','job-cards','reports','notifications'];
 
 function navigate(view, id = null) {
   VIEWS.forEach(v => hide(`view-${v}`));
@@ -252,6 +252,7 @@ function navigate(view, id = null) {
     'users':         'User Management',
     'clients':       'Clients',
     'job-cards':     'Job Cards',
+    'reports':       'Reports',
     'notifications': 'Notifications',
   };
   setText('page-title', titles[view] || '');
@@ -268,6 +269,7 @@ function navigate(view, id = null) {
   if (view === 'users')          loadUsers();
   if (view === 'clients')        { closeClientDetail(); loadClients(); }
   if (view === 'job-cards')      { closeJobCardForm(); loadJobCards(); }
+  if (view === 'reports')        loadClientActivityReport();
   if (view === 'notifications')  loadNotifications();
 }
 
@@ -1468,6 +1470,70 @@ async function printJobCard() {
   printWindow.document.write(`<!DOCTYPE html><html><head><title>${jc.job_card_no}</title></head><body>${tpl.innerHTML}</body></html>`);
   printWindow.document.close();
   printWindow.onload = () => { printWindow.focus(); printWindow.print(); };
+}
+
+/* ── Reports ──────────────────────────────────────────────────────────────── */
+function clearClientActivityDates() {
+  setVal('rpt-date-from', '');
+  setVal('rpt-date-to', '');
+  loadClientActivityReport();
+}
+
+async function loadClientActivityReport() {
+  const from = val('rpt-date-from');
+  const to   = val('rpt-date-to');
+  const params = new URLSearchParams();
+  if (from) params.set('from', from);
+  if (to)   params.set('to', to);
+
+  setInner('rpt-table-wrap', '<div class="flex justify-center py-12"><div class="spinner"></div></div>');
+  try {
+    const data = await apiFetch(`/reports/client-activity?${params}`);
+    renderClientActivityTotals(data.totals || {});
+    renderClientActivityTable(data.clients || []);
+  } catch(e) { setInner('rpt-table-wrap', `<p class="text-red-500 p-4">${e.message}</p>`); }
+}
+
+function renderClientActivityTotals(t) {
+  const cards = [
+    { label: 'Total Tickets',  val: t.ticket_count || 0,               icon: 'fa-ticket',       color: 'text-tia-600' },
+    { label: 'Open',           val: t.open_count || 0,                 icon: 'fa-folder-open',  color: 'text-blue-600' },
+    { label: 'Closed',         val: t.closed_count || 0,               icon: 'fa-circle-check', color: 'text-green-600' },
+    { label: 'Hours Worked',   val: (t.total_hours || 0).toFixed(1),   icon: 'fa-clock',        color: 'text-amber-600' },
+  ];
+  setInner('rpt-totals', cards.map(c => `
+    <div class="bg-white rounded-xl border border-gray-200 p-4">
+      <div class="flex items-center justify-between mb-1">
+        <span class="text-xs text-gray-500 font-medium">${c.label}</span>
+        <i class="fa-solid ${c.icon} ${c.color}"></i>
+      </div>
+      <div class="text-2xl font-semibold text-gray-800">${c.val}</div>
+    </div>`).join(''));
+}
+
+function renderClientActivityTable(clients) {
+  const rows = clients.map(c => `
+    <tr>
+      <td class="px-4 py-3 text-sm font-medium text-gray-800">${esc(c.client_name)}</td>
+      <td class="px-4 py-3 text-sm text-gray-600">${c.ticket_count}</td>
+      <td class="px-4 py-3 text-sm text-blue-600">${c.open_count}</td>
+      <td class="px-4 py-3 text-sm text-green-600">${c.closed_count}</td>
+      <td class="px-4 py-3 text-sm text-amber-700 font-medium">${Number(c.total_hours).toFixed(1)}</td>
+    </tr>`).join('') || '<tr><td colspan="5" class="px-4 py-10 text-center text-gray-400">No client activity found</td></tr>';
+
+  setInner('rpt-table-wrap', `
+    <table class="w-full text-left">
+      <thead class="text-xs text-gray-500 uppercase bg-gray-50">
+        <tr>
+          <th class="px-4 py-3">Client</th>
+          <th class="px-4 py-3">Total Tickets</th>
+          <th class="px-4 py-3">Open</th>
+          <th class="px-4 py-3">Closed</th>
+          <th class="px-4 py-3">Hours Worked</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">${rows}</tbody>
+    </table>`);
 }
 
 /* ── Init ─────────────────────────────────────────────────────────────────── */
