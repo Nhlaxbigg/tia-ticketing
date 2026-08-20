@@ -193,6 +193,10 @@
           class="nav-item hidden w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition hover:bg-white/15">
           <i class="fa-solid fa-clipboard-list w-4 text-center"></i> Job Cards
         </button>
+        <button onclick="navigate('reports')" data-nav="reports" id="nav-reports"
+          class="nav-item hidden w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition hover:bg-white/15">
+          <i class="fa-solid fa-chart-column w-4 text-center"></i> Reports
+        </button>
         <!-- Admin only -->
         <button onclick="navigate('users')" data-nav="users" id="nav-users"
           class="nav-item hidden w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition hover:bg-white/15">
@@ -694,6 +698,33 @@
           </div>
         </div>
 
+
+        <!-- Reports -->
+        <div id="view-reports" class="hidden">
+          <div class="bg-white rounded-xl border border-gray-200 p-4 mb-4 flex items-end gap-3 flex-wrap">
+            <div>
+              <label class="block text-xs font-medium text-gray-600 mb-1">From</label>
+              <input id="rpt-date-from" type="date" class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-tia-500" />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-600 mb-1">To</label>
+              <input id="rpt-date-to" type="date" class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-tia-500" />
+            </div>
+            <button onclick="loadClientActivityReport()" class="bg-tia-600 hover:bg-tia-700 text-white px-4 py-1.5 rounded-lg text-sm transition">
+              <i class="fa-solid fa-magnifying-glass mr-1"></i>Apply
+            </button>
+            <button onclick="clearClientActivityDates()" class="border border-gray-300 text-gray-600 px-4 py-1.5 rounded-lg text-sm">
+              Clear
+            </button>
+          </div>
+
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4" id="rpt-totals"></div>
+
+          <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div class="p-4 border-b border-gray-200 font-medium text-gray-700">Client Activity — Tickets &amp; Hours Worked</div>
+            <div id="rpt-table-wrap"></div>
+          </div>
+        </div>
 
         <!-- Notifications -->
         <div id="view-notifications" class="hidden max-w-2xl">
