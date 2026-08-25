@@ -4,7 +4,7 @@ import os
 from datetime import datetime, timezone
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from database import get_db, next_ticket_no, compute_sla_due_dates, sla_status, log_action
+from database import get_db, next_ticket_no, compute_sla_due_dates, sla_status, log_action, format_sast
 from mailer import send_email, render_ack_email, render_resolved_email, render_assignment_email, render_new_ticket_alert_email
 
 ticket_bp = Blueprint("tickets", __name__)
@@ -203,8 +203,9 @@ def create_ticket():
             client_name=ticket["creator_name"],
             ticket_no=ticket["ticket_no"],
             title=ticket["title"],
-            date_received=ticket["created_at"].strftime("%d %B %Y %H:%M"),
+            date_received=format_sast(ticket["created_at"]),
             technician_name=ticket["assignee_name"],
+            description=ticket["description"],
         )
         send_email(
             ticket["creator_email"], ticket["creator_name"],
@@ -424,9 +425,10 @@ def update_ticket(ticket_id):
             client_name=updated["creator_name"],
             ticket_no=updated["ticket_no"],
             title=updated["title"],
-            date_logged=updated["created_at"].strftime("%d %B %Y %H:%M"),
-            date_resolved=updated["resolved_at"].strftime("%d %B %Y %H:%M"),
+            date_logged=format_sast(updated["created_at"]),
+            date_resolved=format_sast(updated["resolved_at"]),
             technician_name=updated["assignee_name"],
+            work_implemented=updated["work_implemented"],
         )
         send_email(
             updated["creator_email"], updated["creator_name"],
