@@ -102,10 +102,11 @@ def _wrap(inner_html):
 </html>"""
 
 
-def render_ack_email(client_name, ticket_no, title, date_received, technician_name=None):
+def render_ack_email(client_name, ticket_no, title, date_received, technician_name=None, description=None):
     client_name = html.escape(str(client_name))
     title       = html.escape(str(title))
     technician  = html.escape(str(technician_name)) if technician_name else "To be assigned"
+    description_html = html.escape(str(description)).replace("\n", "<br>") if description else ""
 
     inner = f"""
 <p>Dear {client_name},</p>
@@ -115,6 +116,7 @@ confirmation that we have received your request regarding:</p>
 
 <p><strong>Request:</strong> {title} (Ticket {html.escape(ticket_no)})<br>
 <strong>Date Received:</strong> {html.escape(date_received)}</p>
+{f'<p><strong>Description:</strong><br>{description_html}</p>' if description_html else ''}
 
 <p>Our team is reviewing the details, and we will keep you updated on the progress. Should we
 require any additional information, we will contact you directly.</p>
@@ -129,10 +131,11 @@ at <a href="mailto:support@tia-solutions.co.za">support@tia-solutions.co.za</a> 
     return _wrap(inner)
 
 
-def render_resolved_email(client_name, ticket_no, title, date_logged, date_resolved, technician_name=None):
+def render_resolved_email(client_name, ticket_no, title, date_logged, date_resolved, technician_name=None, work_implemented=None):
     client_name = html.escape(str(client_name))
     title       = html.escape(str(title))
     technician  = html.escape(str(technician_name)) if technician_name else "TIA Support Team"
+    work_html   = html.escape(str(work_implemented)).replace("\n", "<br>") if work_implemented else ""
 
     inner = f"""
 <p>Dear {client_name},</p>
@@ -143,6 +146,7 @@ the details below:</p>
 <p><strong>Request:</strong> {title} (Ticket {html.escape(ticket_no)})<br>
 <strong>Date Logged:</strong> {html.escape(date_logged)}<br>
 <strong>Date Resolved:</strong> {html.escape(date_resolved)}</p>
+{f'<p><strong>Work Implemented:</strong><br>{work_html}</p>' if work_html else ''}
 
 <p>Our team has completed the necessary steps to address this matter, and everything is now
 functioning as expected.</p>
