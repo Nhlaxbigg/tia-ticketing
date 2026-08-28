@@ -258,6 +258,18 @@ def init_db():
     conn.close()
 
 
+def format_sast(dt, fmt="%d %B %Y %H:%M"):
+    """Format a stored (UTC, possibly naive) datetime as South African time.
+    Used anywhere a human-readable date is generated server-side (emails),
+    since the database stores raw UTC and the frontend does its own SAST
+    conversion in JS — this is the backend equivalent."""
+    if dt is None:
+        return ""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(ZoneInfo(OFFICE_TZ_NAME)).strftime(fmt)
+
+
 def next_ticket_no():
     conn = get_db()
     c = conn.cursor()
