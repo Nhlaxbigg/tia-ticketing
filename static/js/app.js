@@ -63,7 +63,7 @@ function fmt(dt) {
   const date = new Date(raw.includes('T') || raw.includes(' ') ? raw : raw + (raw.endsWith('Z') ? '' : 'Z'));
   if (Number.isNaN(date.getTime())) return raw;
   return new Intl.DateTimeFormat('en-ZA', {
-    timeZone: 'Africa/Harare',
+    timeZone: 'Africa/Johannesburg',
     day: '2-digit', month: 'short', year: 'numeric',
     hour: '2-digit', minute: '2-digit',
   }).format(date);
@@ -862,9 +862,9 @@ function buildAssigneeOptions(currentAssignedTo) {
     ).join('');
 }
 
-function formatHarareInputValue(date) {
+function formatSASTInputValue(date) {
   const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Africa/Harare',
+    timeZone: 'Africa/Johannesburg',
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', hour12: false,
   });
@@ -880,11 +880,11 @@ function toDatetimeLocal(dt) {
   try {
     const date = new Date(raw.includes('T') || raw.includes(' ') ? raw : raw + (raw.endsWith('Z') ? '' : 'Z'));
     if (Number.isNaN(date.getTime())) return raw.slice(0, 16);
-    return formatHarareInputValue(date);
+    return formatSASTInputValue(date);
   } catch(_) { return raw.slice(0, 16); }
 }
 
-function parseHarareDateTime(value) {
+function parseSASTDateTime(value) {
   if (!value) return null;
   const raw = String(value).trim();
   if (!raw) return null;
@@ -895,8 +895,8 @@ function parseHarareDateTime(value) {
 }
 
 function autoCalcHours() {
-  const start = parseHarareDateTime(el('edit-start-time')?.value);
-  const end = parseHarareDateTime(el('edit-end-time')?.value);
+  const start = parseSASTDateTime(el('edit-start-time')?.value);
+  const end = parseSASTDateTime(el('edit-end-time')?.value);
   if (!start || !end) return;
   const diff = end - start;
   if (diff <= 0) return;
@@ -911,7 +911,7 @@ function closeEditModal() { hide('edit-modal'); editingTicketId = null; }
 async function saveEdit() {
   hideError('edit-error');
   if ((val('edit-status') === 'resolved' || val('edit-status') === 'closed') && !val('edit-end-time')) {
-    setVal('edit-end-time', formatHarareInputValue(new Date()));
+    setVal('edit-end-time', formatSASTInputValue(new Date()));
   }
   autoCalcHours();
   const payload = {
@@ -1519,7 +1519,10 @@ function renderClientActivityTable(clients) {
       <td class="px-4 py-3 text-sm text-blue-600">${c.open_count}</td>
       <td class="px-4 py-3 text-sm text-green-600">${c.closed_count}</td>
       <td class="px-4 py-3 text-sm text-amber-700 font-medium">${Number(c.total_hours).toFixed(1)}</td>
-    </tr>`).join('') || '<tr><td colspan="5" class="px-4 py-10 text-center text-gray-400">No client activity found</td></tr>';
+      <td class="px-4 py-3 text-right">
+        <button onclick="openClientActivityDetail(${c.client_id}, '${esc(c.client_name).replace(/'/g, "\\'")}')" class="text-tia-600 hover:underline text-sm">View Tickets</button>
+      </td>
+    </tr>`).join('') || '<tr><td colspan="6" class="px-4 py-10 text-center text-gray-400">No client activity found</td></tr>';
 
   setInner('rpt-table-wrap', `
     <table class="w-full text-left">
@@ -1530,10 +1533,115 @@ function renderClientActivityTable(clients) {
           <th class="px-4 py-3">Open</th>
           <th class="px-4 py-3">Closed</th>
           <th class="px-4 py-3">Hours Worked</th>
+          <th class="px-4 py-3 text-right">Actions</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-gray-100">${rows}</tbody>
     </table>`);
+}
+
+let currentReportClientId = null;
+let currentReportClientName = null;
+let currentReportTickets = [];
+let currentReportTotalHours = 0;
+
+async function openClientActivityDetail(clientId, clientName) {
+  currentReportClientId = clientId;
+  currentReportClientName = clientName;
+  hide('rpt-summary-panel');
+  show('rpt-client-detail-panel');
+  setText('rpt-detail-client-name', clientName);
+  setText('rpt-detail-summary', 'Loading…');
+  setInner('rpt-detail-table-wrap', '<div class="flex justify-center py-12"><div class="spinner"></div></div>');
+
+  const from = val('rpt-date-from');
+  const to   = val('rpt-date-to');
+  const params = new URLSearchParams();
+  if (from) params.set('from', from);
+  if (to)   params.set('to', to);
+
+  try {
+    const data = await apiFetch(`/reports/client-activity/${clientId}/tickets?${params}`);
+    currentReportTickets = data.tickets || [];
+    currentReportTotalHours = data.total_hours || 0;
+    setText('rpt-detail-summary', `${currentReportTickets.length} ticket${currentReportTickets.length === 1 ? '' : 's'} — ${currentReportTotalHours.toFixed(1)} hours worked`);
+    renderClientActivityDetailTable(currentReportTickets);
+  } catch(e) {
+    setInner('rpt-detail-table-wrap', `<p class="text-red-500 p-4">${e.message}</p>`);
+  }
+}
+
+function closeClientActivityDetail() {
+  hide('rpt-client-detail-panel');
+  show('rpt-summary-panel');
+}
+
+function renderClientActivityDetailTable(tickets) {
+  const rows = tickets.map(t => `
+    <tr>
+      <td class="px-4 py-3 text-xs font-mono text-tia-700 whitespace-nowrap">${esc(t.ticket_no)}</td>
+      <td class="px-4 py-3 text-sm text-gray-800">${esc(t.title)}</td>
+      <td class="px-4 py-3">${badge(t.status, t.status)}</td>
+      <td class="px-4 py-3 text-xs text-gray-600">${esc(t.request_level || '—')}</td>
+      <td class="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">${fmt(t.created_at)}</td>
+      <td class="px-4 py-3 text-xs text-gray-500">${esc(t.assignee_name || '—')}</td>
+      <td class="px-4 py-3 text-sm font-medium text-amber-700">${t.parsed_hours.toFixed(2)}</td>
+    </tr>`).join('') || '<tr><td colspan="7" class="px-4 py-10 text-center text-gray-400">No tickets found for this period</td></tr>';
+
+  setInner('rpt-detail-table-wrap', `
+    <table class="w-full text-left">
+      <thead class="text-xs text-gray-500 uppercase bg-gray-50">
+        <tr>
+          <th class="px-4 py-3">Ticket #</th>
+          <th class="px-4 py-3">Title</th>
+          <th class="px-4 py-3">Status</th>
+          <th class="px-4 py-3">Level</th>
+          <th class="px-4 py-3">Created</th>
+          <th class="px-4 py-3">Assigned To</th>
+          <th class="px-4 py-3">Hours</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">${rows}</tbody>
+    </table>`);
+}
+
+function printClientActivityReport() {
+  const tpl = el('rpt-print-template');
+  if (!tpl || !currentReportClientId) return;
+
+  const from = val('rpt-date-from');
+  const to   = val('rpt-date-to');
+  const rangeText = (from || to) ? ` (${from || '…'} to ${to || '…'})` : ' (all time)';
+
+  tpl.querySelector('#rptp-client-name').textContent = currentReportClientName;
+  tpl.querySelector('#rptp-summary').textContent =
+    `${currentReportTickets.length} ticket${currentReportTickets.length === 1 ? '' : 's'} — ` +
+    `${currentReportTotalHours.toFixed(2)} hours worked${rangeText}`;
+
+  tpl.querySelector('#rptp-rows').innerHTML = currentReportTickets.map(t => `
+    <tr>
+      <td>${esc(t.ticket_no)}</td>
+      <td>${esc(t.title)}</td>
+      <td>${esc(t.status)}</td>
+      <td>${esc(t.request_level || '—')}</td>
+      <td>${fmt(t.created_at)}</td>
+      <td>${t.parsed_hours.toFixed(2)}</td>
+    </tr>`).join('') || '<tr><td colspan="6">No tickets found for this period</td></tr>';
+
+  const printWindow = window.open('', '_blank', 'width=850,height=1000');
+  if (!printWindow) return alert('Please allow pop-ups to print this report.');
+  printWindow.document.write(`<!DOCTYPE html><html><head><title>${currentReportClientName} — Activity Report</title><base href="${window.location.origin}/"></head><body>${tpl.innerHTML}</body></html>`);
+  printWindow.document.close();
+
+  const triggerPrint = () => { printWindow.focus(); printWindow.print(); };
+  const bgImg = printWindow.document.querySelector('.rpt-print-bg');
+  if (bgImg && !bgImg.complete) {
+    bgImg.addEventListener('load', triggerPrint, { once: true });
+    bgImg.addEventListener('error', triggerPrint, { once: true });
+    setTimeout(triggerPrint, 3000);
+  } else {
+    printWindow.onload = triggerPrint;
+  }
 }
 
 /* ── Init ─────────────────────────────────────────────────────────────────── */
