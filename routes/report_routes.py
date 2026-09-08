@@ -124,6 +124,7 @@ def client_activity_tickets(client_id):
     query = f"""
         SELECT t.id, t.ticket_no, t.title, t.status, t.priority, t.request_level,
                t.category, t.support_type, t.created_at, t.resolved_at, t.hours_worked,
+               t.description, t.work_implemented,
                u1.name as creator_name, u2.name as assignee_name
         FROM tickets t
         JOIN users u1 ON t.created_by = u1.id
