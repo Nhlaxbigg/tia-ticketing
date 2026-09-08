@@ -1577,32 +1577,34 @@ function closeClientActivityDetail() {
 }
 
 function renderClientActivityDetailTable(tickets) {
-  const rows = tickets.map(t => `
-    <tr>
-      <td class="px-4 py-3 text-xs font-mono text-tia-700 whitespace-nowrap">${esc(t.ticket_no)}</td>
-      <td class="px-4 py-3 text-sm text-gray-800">${esc(t.title)}</td>
-      <td class="px-4 py-3">${badge(t.status, t.status)}</td>
-      <td class="px-4 py-3 text-xs text-gray-600">${esc(t.request_level || '—')}</td>
-      <td class="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">${fmt(t.created_at)}</td>
-      <td class="px-4 py-3 text-xs text-gray-500">${esc(t.assignee_name || '—')}</td>
-      <td class="px-4 py-3 text-sm font-medium text-amber-700">${t.parsed_hours.toFixed(2)}</td>
-    </tr>`).join('') || '<tr><td colspan="7" class="px-4 py-10 text-center text-gray-400">No tickets found for this period</td></tr>';
+  if (!tickets.length) {
+    setInner('rpt-detail-table-wrap', '<p class="px-4 py-10 text-center text-gray-400">No tickets found for this period</p>');
+    return;
+  }
 
-  setInner('rpt-detail-table-wrap', `
-    <table class="w-full text-left">
-      <thead class="text-xs text-gray-500 uppercase bg-gray-50">
-        <tr>
-          <th class="px-4 py-3">Ticket #</th>
-          <th class="px-4 py-3">Title</th>
-          <th class="px-4 py-3">Status</th>
-          <th class="px-4 py-3">Level</th>
-          <th class="px-4 py-3">Created</th>
-          <th class="px-4 py-3">Assigned To</th>
-          <th class="px-4 py-3">Hours</th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-gray-100">${rows}</tbody>
-    </table>`);
+  const cards = tickets.map(t => `
+    <div class="p-4 border-b border-gray-100">
+      <div class="flex items-start justify-between gap-4 flex-wrap mb-2">
+        <div>
+          <button onclick="viewTicket(${t.id})" class="text-tia-600 hover:underline font-mono text-sm font-medium">${esc(t.ticket_no)}</button>
+          <span class="text-sm text-gray-800 ml-2">${esc(t.title)}</span>
+        </div>
+        <div class="flex items-center gap-2 flex-wrap">
+          ${badge(t.status, t.status)}
+          <span class="text-xs text-gray-500">${esc(t.request_level || '—')}</span>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs text-gray-500 mb-2">
+        <div><span class="text-gray-400">Created:</span> ${fmt(t.created_at)}</div>
+        <div><span class="text-gray-400">Contact:</span> ${esc(t.creator_name || '—')}</div>
+        <div><span class="text-gray-400">Assigned To:</span> ${esc(t.assignee_name || '—')}</div>
+        <div><span class="text-gray-400">Hours:</span> <span class="text-amber-700 font-medium">${t.parsed_hours.toFixed(2)}</span></div>
+      </div>
+      ${t.description ? `<div class="text-xs text-gray-600 mb-1"><span class="font-medium text-gray-500">Description:</span> ${esc(t.description)}</div>` : ''}
+      ${t.work_implemented ? `<div class="text-xs text-gray-600"><span class="font-medium text-gray-500">Work Implemented:</span> ${esc(t.work_implemented)}</div>` : ''}
+    </div>`).join('');
+
+  setInner('rpt-detail-table-wrap', cards);
 }
 
 function printClientActivityReport() {
@@ -1619,14 +1621,20 @@ function printClientActivityReport() {
     `${currentReportTotalHours.toFixed(2)} hours worked${rangeText}`;
 
   tpl.querySelector('#rptp-rows').innerHTML = currentReportTickets.map(t => `
-    <tr>
-      <td>${esc(t.ticket_no)}</td>
-      <td>${esc(t.title)}</td>
-      <td>${esc(t.status)}</td>
-      <td>${esc(t.request_level || '—')}</td>
-      <td>${fmt(t.created_at)}</td>
-      <td>${t.parsed_hours.toFixed(2)}</td>
-    </tr>`).join('') || '<tr><td colspan="6">No tickets found for this period</td></tr>';
+    <div class="rpt-ticket-card">
+      <div class="rpt-head">
+        <span class="rpt-no">${esc(t.ticket_no)} — ${esc(t.title)}</span>
+        <span>${esc(t.status)}</span>
+      </div>
+      <div class="rpt-meta">
+        <span>Level: ${esc(t.request_level || '—')}</span>
+        <span>Created: ${fmt(t.created_at)}</span>
+        <span>Contact: ${esc(t.creator_name || '—')}</span>
+        <span>Hours: ${t.parsed_hours.toFixed(2)}</span>
+      </div>
+      ${t.description ? `<div class="rpt-field"><span class="rpt-field-label">Description:</span> ${esc(t.description)}</div>` : ''}
+      ${t.work_implemented ? `<div class="rpt-field"><span class="rpt-field-label">Work Implemented:</span> ${esc(t.work_implemented)}</div>` : ''}
+    </div>`).join('') || '<p>No tickets found for this period</p>';
 
   const printWindow = window.open('', '_blank', 'width=850,height=1000');
   if (!printWindow) return alert('Please allow pop-ups to print this report.');
