@@ -34,6 +34,25 @@
     }
   </script>
   <link rel="stylesheet" href="/css/style.css" />
+ <style>
+    #menu-btn { display: none; }
+    #menu-backdrop { display: none; }
+    @media (max-width: 767px) {
+      #sidebar {
+        position: fixed; top: 0; left: 0; bottom: 0;
+        z-index: 40; overflow-y: auto;
+        padding-bottom: 90px;
+        transform: translateX(-100%);
+        transition: transform .25s ease;
+      }
+      body.menu-open #sidebar { transform: translateX(0); }
+      body.menu-open #menu-backdrop {
+        display: block; position: fixed; inset: 0;
+        background: rgba(0,0,0,.45); z-index: 30;
+      }
+      #menu-btn { display: inline-block; }
+    }
+  </style>
 </head>
 <body class="h-full bg-gray-50 text-gray-800">
 
