@@ -238,7 +238,10 @@
     <main class="flex-1 overflow-auto">
       <!-- Top bar -->
       <header class="sticky top-0 z-10 bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
-        <div id="page-title" class="font-semibold text-gray-700 text-lg"></div>
+        <div class="flex items-center gap-3">
+          <button id="menu-btn" onclick="toggleMenu()" class="text-gray-600 text-xl" aria-label="Menu"><i class="fa-solid fa-bars"></i></button>
+          <div id="page-title" class="font-semibold text-gray-700 text-lg"></div>
+        </div>
         <div class="flex items-center gap-4">
           <!-- Notification bell -->
           <button onclick="navigate('notifications')" class="relative text-gray-500 hover:text-tia-600 transition">
