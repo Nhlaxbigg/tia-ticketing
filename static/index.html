@@ -936,6 +936,13 @@
     </div>
   </div>
 
+  <div id="menu-backdrop" onclick="toggleMenu()"></div>
+  <script>
+    function toggleMenu() { document.body.classList.toggle('menu-open'); }
+    document.addEventListener('click', function (e) {
+      if (e.target.closest('#sidebar [data-nav]')) document.body.classList.remove('menu-open');
+    });
+  </script>
   <script src="/js/app.js"></script>
 </body>
 </html>
